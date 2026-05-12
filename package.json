@@ -1,0 +1,8 @@
+{
+  "name": "velotax-painel",
+  "version": "1.0.0",
+  "description": "Painel de Operacoes Velotax",
+  "dependencies": {
+    "xlsx": "^0.18.5"
+  }
+}
