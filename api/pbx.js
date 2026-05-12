@@ -1,4 +1,5 @@
 // api/pbx.js - Endpoints da 55PBX
+
 const { request, to55Date, sendJson, PBX_KEY, PBX_BASE } = require('./_shared');
 
 function getPbxDates() {
@@ -17,6 +18,16 @@ async function getReport(report) {
   return { status: r.status, data: data };
 }
 
+// Valida que uma nota está em range válido (0–10)
+// Se vier um número absurdo (ex: ID da API), retorna null
+function validarNota(val) {
+  if (val === null || val === undefined || val === '') return null;
+  var n = parseFloat(val);
+  if (isNaN(n)) return null;
+  if (n < 0 || n > 10) return null; // fora do range de nota → é um ID ou lixo
+  return n;
+}
+
 module.exports = async function(req, res) {
   // CORS preflight
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -30,11 +41,11 @@ module.exports = async function(req, res) {
       var d = r.data;
       var raw = Array.isArray(d) ? d[0] : (d.data_report01 ? d.data_report01[0] : d);
 
-      var proc  = raw.totalCallProcessedQueue || 0;
+      var proc  = raw.totalCallProcessedQueue   || 0;
       var att   = raw.totalCallAttendedReceptive || 0;
-      var aband = raw.totalCallAbandonedQueue || 0;
-      var pctAtt  = proc > 0 ? ((att/proc)*100).toFixed(1) : '0.0';
-      var pctAb   = proc > 0 ? ((aband/proc)*100).toFixed(1) : '0.0';
+      var aband = raw.totalCallAbandonedQueue    || 0;
+      var pctAtt = proc > 0 ? ((att/proc)*100).toFixed(1) : '0.0';
+      var pctAb  = proc > 0 ? ((aband/proc)*100).toFixed(1) : '0.0';
 
       function fmtTime(s) {
         if (!s) return '00:00:00';
@@ -44,17 +55,30 @@ module.exports = async function(req, res) {
         return String(Math.floor(sec/3600)).padStart(2,'0')+':'+String(Math.floor((sec%3600)/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
       }
 
+      // Valida as notas — se forem IDs numéricos gigantes, retorna null
+      var notaAtt = validarNota(raw.quizAverageAttendant);
+      var notaSol = validarNota(raw.quizAverageSolution);
+
       return sendJson(res, {
-        processadas : proc,
-        atendidas   : att,
-        abandonadas : aband,
-        pctAtendidas: pctAtt,
-        pctAband    : pctAb,
-        tma         : fmtTime(raw.timeMediumDurationCall),
-        maxEspera   : fmtTime(raw.timeMaxWaitingAttendance),
-        maxChamada  : fmtTime(raw.timeMaxDurationCall),
-        notaAtendente: raw.quizAverageAttendant || null,
-        notaSolucao  : raw.quizAverageSolution  || null,
+        // Campos que o index.html lê diretamente (camelCase original da 55PBX)
+        totalCallProcessedQueue:    proc,
+        totalCallAttendedReceptive: att,
+        totalCallAbandonedQueue:    aband,
+        pctAtendidas:               pctAtt,
+        pctAband:                   pctAb,
+        timeMediumDurationCall:     fmtTime(raw.timeMediumDurationCall),
+        timeMaxWaitingAttendance:   fmtTime(raw.timeMaxWaitingAttendance),
+        timeMaxDurationCall:        fmtTime(raw.timeMaxDurationCall),
+        timeMediumDurationCallActive:     fmtTime(raw.timeMediumDurationCallActive),
+        timeMaxWaitingAttendanceActive:   fmtTime(raw.timeMaxWaitingAttendanceActive),
+        timeMaxDurationCallActive:        fmtTime(raw.timeMaxDurationCallActive),
+        timeMinDurationCall:              fmtTime(raw.timeMinDurationCall),
+        timeMediumWaitingAttendance:      fmtTime(raw.timeMediumWaitingAttendance),
+        timeMaxNavegationURA:             fmtTime(raw.timeMaxNavegationURA),
+        totalTransfer:                    raw.totalTransfer || 0,
+        // Notas validadas (null se inválidas)
+        quizAverageAttendant: notaAtt !== null ? String(notaAtt) : null,
+        quizAverageSolution:  notaSol !== null ? String(notaSol) : null,
         _raw: raw,
       });
     }
@@ -63,15 +87,33 @@ module.exports = async function(req, res) {
       var r2 = await getReport('report_02');
       if (r2.status !== 200) return sendJson(res, { notaAtendente: null, notaSolucao: null });
       var records = Array.isArray(r2.data) ? r2.data : (r2.data.data_report02 || r2.data.data || []);
+
       var somaAtt = 0, cntAtt = 0, somaSol = 0, cntSol = 0;
+      var distAtt = {1:0,2:0,3:0,4:0,5:0};
+      var distSol = {1:0,2:0,3:0,4:0,5:0};
+
       records.forEach(function(rec) {
-        var v2 = parseFloat(rec.wk_ivr_2_option); if (!isNaN(v2) && v2>0) { somaAtt+=v2; cntAtt++; }
-        var v3 = parseFloat(rec.wk_ivr_3_option); if (!isNaN(v3) && v3>0) { somaSol+=v3; cntSol++; }
+        var v2 = parseFloat(rec.wk_ivr_2_option);
+        if (!isNaN(v2) && v2 >= 1 && v2 <= 5) {
+          somaAtt += v2; cntAtt++;
+          distAtt[Math.round(v2)] = (distAtt[Math.round(v2)]||0) + 1;
+        }
+        var v3 = parseFloat(rec.wk_ivr_3_option);
+        if (!isNaN(v3) && v3 >= 1 && v3 <= 5) {
+          somaSol += v3; cntSol++;
+          distSol[Math.round(v3)] = (distSol[Math.round(v3)]||0) + 1;
+        }
       });
+
       return sendJson(res, {
-        notaAtendente: cntAtt>0 ? (somaAtt/cntAtt).toFixed(2) : null,
-        notaSolucao  : cntSol>0 ? (somaSol/cntSol).toFixed(2) : null,
-        totalAtt: cntAtt, totalSol: cntSol,
+        notaAtendente: cntAtt > 0 ? (somaAtt/cntAtt).toFixed(2) : null,
+        notaSolucao:   cntSol > 0 ? (somaSol/cntSol).toFixed(2) : null,
+        totalAtt: cntAtt,
+        totalSol: cntSol,
+        medias_por_campo: {
+          'Atendente': { media: cntAtt > 0 ? parseFloat((somaAtt/cntAtt).toFixed(2)) : null, total: cntAtt, distribuicao: distAtt },
+          'Solucao':   { media: cntSol > 0 ? parseFloat((somaSol/cntSol).toFixed(2)) : null, total: cntSol, distribuicao: distSol },
+        },
       });
     }
 
