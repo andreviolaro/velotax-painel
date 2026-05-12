@@ -237,7 +237,7 @@
       <div class="mc" style="--ac:#15A237"><div class="ml">Atendidas</div><div class="skeleton"></div></div>
       <div class="mc" style="--ac:#e03030"><div class="ml">Abandonadas</div><div class="skeleton"></div></div>
       <div class="mc" style="--ac:#006AB9"><div class="ml">TMA</div><div class="skeleton"></div></div>
-      <div class="mc" style="--ac:#e03030"><div class="ml">Em Espera (Fila)</div><div class="skeleton"></div></div>
+      <div class="mc" style="--ac:#006AB9"><div class="ml">Em URA</div><div class="skeleton"></div></div>
       <div class="mc wide" style="--ac:#FCC200"><div class="ml">Tempos Máximos</div><div class="skeleton"></div></div>
       <div class="mc" style="--ac:#FCC200"><div class="ml">Nota Atendente</div><div class="skeleton"></div></div>
       <div class="mc" style="--ac:#006AB9"><div class="ml">Nota Solução</div><div class="skeleton"></div></div>
@@ -497,10 +497,10 @@ function renderTelCards(d) {
       <div class="mv" style="font-size:21px">${tma}</div>
       <span class="mb bb">Receptivo</span>
     </div>
-    <div class="mc" id="mc-espera" style="--ac:#e03030" onclick="openM('tel-espera')">
-      <div class="ml">Em Espera (Fila)</div>
-      <div class="mv" id="tel-espera-val">—</div>
-      <div class="ms" id="tel-espera-sub">aguardando</div>
+    <div class="mc" style="--ac:#006AB9">
+      <div class="ml">Em URA</div>
+      <div class="mv">${(d.totalCallProcessedURA||0).toLocaleString('pt-BR')}</div>
+      <div class="ms">chamadas hoje</div>
     </div>
     <div class="mc wide" style="--ac:#FCC200" onclick="openM('tel-tempos')">
       <div class="ml">Tempos Máximos</div>
@@ -788,7 +788,7 @@ function buildStars(val) {
 
 let secs = 5; // primeira carga rapida
 // Espera: atualiza a cada 15 segundos (mais frequente)
-setInterval(function() { fetchEspera(); }, 15000);
+// espera via URA - removido
 setInterval(() => {
   secs--;
   if (secs < 0) { secs = 120; fetchPBX(); }
@@ -802,7 +802,7 @@ function forceRefresh() {
   const btn = document.getElementById('refresh-btn');
   btn.classList.add('spinning');
   btn.disabled = true;
-  Promise.all([fetchPBX(), fetchOcta(), fetchEspera()]).finally(() => {
+  Promise.all([fetchPBX(), fetchOcta()]).finally(() => {
     btn.classList.remove('spinning');
     btn.disabled = false;
   });
@@ -810,7 +810,7 @@ function forceRefresh() {
 
 fetchPBX();    // carga imediata
 fetchOcta();   // carga imediata Octadesk
-fetchEspera(); // carga imediata espera fila
+// fetchEspera removido - usando URA
 loadAderencia(); // carga imediata aderencia
 
 // ── Módulo Aderência ─────────────────────────────────────────
