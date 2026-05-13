@@ -174,6 +174,16 @@ td{padding:13px 16px;font-size:14px}
 .tipo-card.selected{border-color:var(--vb);background:#EEF1FF}
 .tipo-card-title{font-size:13px;font-weight:600;margin-bottom:2px}
 .tipo-card-sub{font-size:11px;color:var(--muted)}
+.folga-rot{margin-top:14px;display:none}
+.folga-rot.visible{display:block}
+.folga-rot label{display:block;font-size:13px;font-weight:500;color:var(--muted);margin-bottom:6px}
+.folga-dias{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.folga-dia{
+  padding:7px 14px;border-radius:20px;border:1.5px solid var(--border);
+  background:#fff;font-size:13px;font-family:inherit;cursor:pointer;
+  color:var(--muted);transition:all .15s;font-weight:500;
+}
+.folga-dia.active{border-color:var(--vb);background:var(--vb);color:#fff}
 .modal-footer{
   padding:16px 28px 24px;display:flex;gap:10px;justify-content:flex-end;
   border-top:1px solid var(--border);
@@ -381,6 +391,18 @@ td{padding:13px 16px;font-size:14px}
         </div>
         <input type="hidden" id="f-tipo" value="velo"/>
       </div>
+      <div class="form-row folga-rot" id="folga-rot-wrap">
+        <label>Folga da semana <span style="font-weight:400;color:var(--muted)">(opcional — quando trabalha no sábado)</span></label>
+        <div class="folga-dias">
+          <button type="button" class="folga-dia active" onclick="selectFolga(0,this)">Sem folga</button>
+          <button type="button" class="folga-dia" onclick="selectFolga(1,this)">Segunda</button>
+          <button type="button" class="folga-dia" onclick="selectFolga(2,this)">Terça</button>
+          <button type="button" class="folga-dia" onclick="selectFolga(3,this)">Quarta</button>
+          <button type="button" class="folga-dia" onclick="selectFolga(4,this)">Quinta</button>
+          <button type="button" class="folga-dia" onclick="selectFolga(5,this)">Sexta</button>
+        </div>
+        <input type="hidden" id="f-folga-dia" value="0"/>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeModal()">Cancelar</button>
@@ -558,7 +580,7 @@ function openModal(colab) {
   document.getElementById('f-empresa').value = colab ? colab.empresa : '';
   document.getElementById('f-entrada').value = colab ? colab.entrada : '08:00';
   document.getElementById('f-saida').value = colab ? colab.saida : '17:00';
-  selectTipoById(colab ? colab.tipo_escala : 'velo');
+  selectTipoById(colab ? colab.tipo_escala : 'velo', colab ? colab.folga_dia : 0);
   document.getElementById('modal').classList.add('open');
 }
 
@@ -575,15 +597,40 @@ function selectTipo(tipo, card) {
   document.querySelectorAll('.tipo-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
   document.getElementById('f-tipo').value = tipo;
+  // Mostra campo folga só para rotativo
+  const folgaWrap = document.getElementById('folga-rot-wrap');
+  if (tipo === 'job_rot') {
+    folgaWrap.classList.add('visible');
+  } else {
+    folgaWrap.classList.remove('visible');
+    selectFolga(0, document.querySelector('.folga-dia'));
+  }
 }
 
-function selectTipoById(tipo) {
+function selectFolga(dia, btn) {
+  document.querySelectorAll('.folga-dia').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('f-folga-dia').value = dia;
+}
+
+function selectTipoById(tipo, folgaDia) {
   const cards = document.querySelectorAll('.tipo-card');
   const tipos = ['velo','job_sabqua','job_segsex','job_rot'];
   cards.forEach((c,i) => {
     c.classList.toggle('selected', tipos[i] === tipo);
   });
   document.getElementById('f-tipo').value = tipo;
+  // Mostra/esconde folga
+  const folgaWrap = document.getElementById('folga-rot-wrap');
+  if (tipo === 'job_rot') {
+    folgaWrap.classList.add('visible');
+    // Restaura dia de folga salvo
+    const dia = parseInt(folgaDia) || 0;
+    document.getElementById('f-folga-dia').value = dia;
+    document.querySelectorAll('.folga-dia').forEach((b,i) => b.classList.toggle('active', i === dia));
+  } else {
+    folgaWrap.classList.remove('visible');
+  }
 }
 
 // ── SALVAR ──────────────────────────────────────────────────────
@@ -604,7 +651,8 @@ async function salvar() {
   btn.disabled = true;
   document.getElementById('save-label').textContent = 'Salvando...';
 
-  const payload = { nome, ramal, empresa, entrada, saida, tipo_escala: tipo, ativo: true, updated_at: new Date().toISOString() };
+  const folgaDia = tipo === 'job_rot' ? (parseInt(document.getElementById('f-folga-dia').value) || 0) : 0;
+  const payload = { nome, ramal, empresa, entrada, saida, tipo_escala: tipo, folga_dia: folgaDia, ativo: true, updated_at: new Date().toISOString() };
 
   try {
     if (id) {
