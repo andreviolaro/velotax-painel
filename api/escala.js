@@ -40,12 +40,20 @@ function calculaTrabalhaHoje(tipo_escala, ramal, diaSemana, semIdx) {
   if (tipo_escala === 'job_sabqua') return [0,1,2,3,6].includes(diaSemana);
   if (tipo_escala === 'job_segsex') return diaSemana >= 1 && diaSemana <= 5;
   if (tipo_escala === 'job_rot') {
+    // Usa folga_dia cadastrado no painel (0=sem folga, 1-5=dia da semana)
+    // Fallback: calendário anual codificado
+    const folgaDia = parseInt(agente.folga_dia) || 0;
     const cal = CALENDARIO[ramal];
-    if (!cal) return diaSemana >= 1 && diaSemana <= 5;
-    const idx = Math.min(semIdx, cal.sab.length - 1);
-    if (diaSemana === 0) return false;
-    if (diaSemana === 6) return cal.sab[idx] === 'S';
-    return (cal.escSem[idx] || 0) !== diaSemana;
+    const calIdx = cal ? Math.min(semIdx, cal.sab.length - 1) : -1;
+
+    if (diaSemana === 0) return false; // Dom: nunca
+    if (diaSemana === 6) {
+      // Sáb: usa calendário anual se disponível
+      return cal ? cal.sab[calIdx] === 'S' : false;
+    }
+    // Dia útil: usa folga_dia do banco se configurado, senão calendário
+    const diaFolga = folgaDia > 0 ? folgaDia : (cal ? (cal.escSem[calIdx] || 0) : 0);
+    return diaFolga !== diaSemana;
   }
   return false;
 }
