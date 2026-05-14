@@ -35,14 +35,14 @@ function getWeekIndex(hoje) {
   return Math.max(0, Math.floor(diff / (7 * 24 * 3600 * 1000)));
 }
 
-function calculaTrabalhaHoje(tipo_escala, ramal, diaSemana, semIdx) {
+function calculaTrabalhaHoje(tipo_escala, ramal, diaSemana, semIdx, folgaDiaBanco) {
   if (tipo_escala === 'velo')     return diaSemana >= 1 && diaSemana <= 5;
   if (tipo_escala === 'job_sabqua') return [0,1,2,3,6].includes(diaSemana);
   if (tipo_escala === 'job_segsex') return diaSemana >= 1 && diaSemana <= 5;
   if (tipo_escala === 'job_rot') {
     // Usa folga_dia cadastrado no painel (0=sem folga, 1-5=dia da semana)
     // Fallback: calendário anual codificado
-    const folgaDia = parseInt(agente.folga_dia) || 0;
+    const folgaDia = parseInt(folgaDiaBanco) || 0;
     const cal = CALENDARIO[ramal];
     const calIdx = cal ? Math.min(semIdx, cal.sab.length - 1) : -1;
 
@@ -85,7 +85,7 @@ module.exports = async function(req, res) {
       entrada:      a.entrada,
       saida:        a.saida,
       tipo:         a.tipo_escala,
-      trabalhaHoje: calculaTrabalhaHoje(a.tipo_escala, a.ramal, dia, semIdx),
+      trabalhaHoje: calculaTrabalhaHoje(a.tipo_escala, a.ramal, dia, semIdx, a.folga_dia),
     }));
 
     return sendJson(res, escala, 200);
