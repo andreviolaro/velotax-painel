@@ -35,25 +35,32 @@ function getWeekIndex(hoje) {
   return Math.max(0, Math.floor(diff / (7 * 24 * 3600 * 1000)));
 }
 
-function calculaTrabalhaHoje(tipo_escala, ramal, diaSemana, semIdx, folgaDiaBanco) {
+function calculaTrabalhaHoje(tipo_escala, ramal, diaSemana, semIdx, folgaDiaBanco, agenteFolgaData) {
   if (tipo_escala === 'velo')     return diaSemana >= 1 && diaSemana <= 5;
   if (tipo_escala === 'job_sabqua') return [0,1,2,3,6].includes(diaSemana);
   if (tipo_escala === 'job_segsex') return diaSemana >= 1 && diaSemana <= 5;
   if (tipo_escala === 'job_rot') {
-    // Usa folga_dia cadastrado no painel (0=sem folga, 1-5=dia da semana)
-    // Fallback: calendário anual codificado
-    const folgaDia = parseInt(folgaDiaBanco) || 0;
+    // folga_dia + folga_data: folga válida SOMENTE na data cadastrada
+    const folgaDia  = parseInt(folgaDiaBanco) || 0;
     const cal = CALENDARIO[ramal];
     const calIdx = cal ? Math.min(semIdx, cal.sab.length - 1) : -1;
 
     if (diaSemana === 0) return false; // Dom: nunca
     if (diaSemana === 6) {
-      // Sáb: usa calendário anual se disponível
       return cal ? cal.sab[calIdx] === 'S' : false;
     }
-    // Dia útil: usa folga_dia do banco se configurado, senão calendário
-    const diaFolga = folgaDia > 0 ? folgaDia : (cal ? (cal.escSem[calIdx] || 0) : 0);
-    return diaFolga !== diaSemana;
+    // Verifica folga_dia + folga_data do banco
+    if (folgaDia > 0 && agenteFolgaData) {
+      // Folga só vale se hoje é exatamente a data cadastrada
+      const hoje = new Date();
+      const hojeStr = hoje.getFullYear() + '-' +
+        String(hoje.getMonth()+1).padStart(2,'0') + '-' +
+        String(hoje.getDate()).padStart(2,'0');
+      if (hojeStr === agenteFolgaData && diaSemana === folgaDia) return false;
+    }
+    // Fallback: calendário anual codificado
+    const diaFolgaCal = cal ? (cal.escSem[calIdx] || 0) : 0;
+    return diaFolgaCal !== diaSemana;
   }
   return false;
 }
@@ -85,7 +92,7 @@ module.exports = async function(req, res) {
       entrada:      a.entrada,
       saida:        a.saida,
       tipo:         a.tipo_escala,
-      trabalhaHoje: calculaTrabalhaHoje(a.tipo_escala, a.ramal, dia, semIdx, a.folga_dia),
+      trabalhaHoje: calculaTrabalhaHoje(a.tipo_escala, a.ramal, dia, semIdx, a.folga_dia, a.folga_data),
     }));
 
     return sendJson(res, escala, 200);
