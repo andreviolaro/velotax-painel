@@ -392,16 +392,27 @@ td{padding:13px 16px;font-size:14px}
         <input type="hidden" id="f-tipo" value="velo"/>
       </div>
       <div class="form-row folga-rot" id="folga-rot-wrap">
-        <label>Folga da semana <span style="font-weight:400;color:var(--muted)">(opcional — quando trabalha no sábado)</span></label>
-        <div class="folga-dias">
-          <button type="button" class="folga-dia active" onclick="selectFolga(0,this)">Sem folga</button>
-          <button type="button" class="folga-dia" onclick="selectFolga(1,this)">Segunda</button>
-          <button type="button" class="folga-dia" onclick="selectFolga(2,this)">Terça</button>
-          <button type="button" class="folga-dia" onclick="selectFolga(3,this)">Quarta</button>
-          <button type="button" class="folga-dia" onclick="selectFolga(4,this)">Quinta</button>
-          <button type="button" class="folga-dia" onclick="selectFolga(5,this)">Sexta</button>
+        <label>Folga compensatória <span style="font-weight:400;color:var(--muted)">(quando trabalha no sábado)</span></label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px">
+          <div>
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500">Dia da folga</div>
+            <div class="folga-dias" style="flex-wrap:wrap">
+              <button type="button" class="folga-dia active" onclick="selectFolga(0,this)">Sem folga</button>
+              <button type="button" class="folga-dia" onclick="selectFolga(1,this)">Segunda</button>
+              <button type="button" class="folga-dia" onclick="selectFolga(2,this)">Terça</button>
+              <button type="button" class="folga-dia" onclick="selectFolga(3,this)">Quarta</button>
+              <button type="button" class="folga-dia" onclick="selectFolga(4,this)">Quinta</button>
+              <button type="button" class="folga-dia" onclick="selectFolga(5,this)">Sexta</button>
+            </div>
+          </div>
+          <div id="folga-data-wrap" style="display:none">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;font-weight:500">Data da folga</div>
+            <input type="date" id="f-folga-data" style="width:100%;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;outline:none;color:var(--text)"/>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">Válido somente neste dia</div>
+          </div>
         </div>
         <input type="hidden" id="f-folga-dia" value="0"/>
+        <input type="hidden" id="f-folga-data-val" value=""/>
       </div>
     </div>
     <div class="modal-footer">
@@ -580,7 +591,7 @@ function openModal(colab) {
   document.getElementById('f-empresa').value = colab ? colab.empresa : '';
   document.getElementById('f-entrada').value = colab ? colab.entrada : '08:00';
   document.getElementById('f-saida').value = colab ? colab.saida : '17:00';
-  selectTipoById(colab ? colab.tipo_escala : 'velo', colab ? colab.folga_dia : 0);
+  selectTipoById(colab ? colab.tipo_escala : 'velo', colab ? colab.folga_dia : 0, colab ? colab.folga_data : '');
   document.getElementById('modal').classList.add('open');
 }
 
@@ -611,9 +622,18 @@ function selectFolga(dia, btn) {
   document.querySelectorAll('.folga-dia').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('f-folga-dia').value = dia;
+  // Mostra campo data só quando há dia de folga selecionado
+  const dataWrap = document.getElementById('folga-data-wrap');
+  if (dia > 0) {
+    dataWrap.style.display = 'block';
+  } else {
+    dataWrap.style.display = 'none';
+    document.getElementById('f-folga-data').value = '';
+    document.getElementById('f-folga-data-val').value = '';
+  }
 }
 
-function selectTipoById(tipo, folgaDia) {
+function selectTipoById(tipo, folgaDia, folgaData) {
   const cards = document.querySelectorAll('.tipo-card');
   const tipos = ['velo','job_sabqua','job_segsex','job_rot'];
   cards.forEach((c,i) => {
@@ -628,6 +648,19 @@ function selectTipoById(tipo, folgaDia) {
     const dia = parseInt(folgaDia) || 0;
     document.getElementById('f-folga-dia').value = dia;
     document.querySelectorAll('.folga-dia').forEach((b,i) => b.classList.toggle('active', i === dia));
+    // Restaura data da folga
+    const folgaDataWrap = document.getElementById('folga-data-wrap');
+    const folgaDataInput = document.getElementById('f-folga-data');
+    const folgaDataVal = document.getElementById('f-folga-data-val');
+    if (dia > 0 && folgaData) {
+      folgaDataWrap.style.display = 'block';
+      folgaDataInput.value = folgaData;
+      folgaDataVal.value = folgaData;
+    } else {
+      folgaDataWrap.style.display = 'none';
+      folgaDataInput.value = '';
+      folgaDataVal.value = '';
+    }
   } else {
     folgaWrap.classList.remove('visible');
   }
@@ -651,8 +684,9 @@ async function salvar() {
   btn.disabled = true;
   document.getElementById('save-label').textContent = 'Salvando...';
 
-  const folgaDia = tipo === 'job_rot' ? (parseInt(document.getElementById('f-folga-dia').value) || 0) : 0;
-  const payload = { nome, ramal, empresa, entrada, saida, tipo_escala: tipo, folga_dia: folgaDia, ativo: true, updated_at: new Date().toISOString() };
+  const folgaDia  = tipo === 'job_rot' ? (parseInt(document.getElementById('f-folga-dia').value) || 0) : 0;
+  const folgaData = tipo === 'job_rot' && folgaDia > 0 ? (document.getElementById('f-folga-data').value || '') : '';
+  const payload = { nome, ramal, empresa, entrada, saida, tipo_escala: tipo, folga_dia: folgaDia, folga_data: folgaData, ativo: true, updated_at: new Date().toISOString() };
 
   try {
     if (id) {
