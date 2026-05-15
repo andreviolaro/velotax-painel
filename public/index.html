@@ -642,8 +642,18 @@ async function fetchPBX() {
       if (notas.totalAvaliacoes) d._totalAvaliacoes   = notas.totalAvaliacoes;
       if (notas.medias_por_campo) {
         const campos = Object.keys(notas.medias_por_campo);
-        if (campos.length >= 1) d.quizAverageAttendant = String(notas.medias_por_campo[campos[0]].media);
-        if (campos.length >= 2) d.quizAverageSolution  = String(notas.medias_por_campo[campos[1]].media);
+        // medias_por_campo já vem com escala correta (proxy inverte 6-nota)
+        // quizAverageAttendant/Solution serão invertidos em renderTelCards — então aqui passamos o valor invertido de volta para cancelar
+        // ou seja: se proxy retornou 4.80, passamos como está e renderTelCards fará 6-4.80=1.20 (errado)
+        // Solução: quando vier de medias_por_campo, colocamos o valor já corrigido e sinalizamos
+        if (campos.length >= 1) {
+          var mediaAtt = notas.medias_por_campo[campos[0]].media;
+          d.quizAverageAttendant = String(6 - mediaAtt); // pré-inverte para cancelar a inversão do renderTelCards
+        }
+        if (campos.length >= 2) {
+          var mediaSol = notas.medias_por_campo[campos[1]].media;
+          d.quizAverageSolution = String(6 - mediaSol);
+        }
         if (campos.length >= 1) d._totalAvaliacoes = notas.medias_por_campo[campos[0]].total;
       }
       window._notas = notas;
@@ -690,8 +700,8 @@ function renderTelCards(d) {
   const tma     = d.timeMediumDurationCall  || '—';
   const maxEsp  = d.timeMaxWaitingAttendance || '—';
   const maxCall = d.timeMaxDurationCall     || '—';
-  const qAtt    = d.quizAverageAttendant ? Number(d.quizAverageAttendant).toFixed(2) : null;
-  const qSol    = d.quizAverageSolution  ? Number(d.quizAverageSolution).toFixed(2)  : null;
+  const qAtt    = d.quizAverageAttendant ? (6 - Number(d.quizAverageAttendant)).toFixed(2) : null;
+  const qSol    = d.quizAverageSolution  ? (6 - Number(d.quizAverageSolution)).toFixed(2)  : null;
 
   document.getElementById('tel-cards').innerHTML = `
     <div class="mc" style="--ac:#1634FF" onclick="openM('tel-proc')">
