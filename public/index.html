@@ -192,6 +192,15 @@
     .ef-table-wrap{border:1px solid var(--bo);border-radius:12px;overflow:hidden;}
     @keyframes pulseGreen{0%,100%{opacity:1;}50%{opacity:0.4;}}
 
+    /* ── Em Fila collapse ── */
+    .ef-body{overflow:hidden;transition:max-height .35s ease, opacity .25s ease;}
+    .ef-body.collapsed{max-height:0!important;opacity:0;pointer-events:none;}
+    .ef-body.expanded{opacity:1;}
+    .ef-collapse-btn{display:flex;align-items:center;gap:5px;background:none;border:1px solid var(--bo);border-radius:20px;font-size:11px;color:var(--vm);font-family:inherit;padding:4px 11px;cursor:pointer;margin-left:10px;transition:background .15s;}
+    .ef-collapse-btn:hover{background:var(--vi);}
+    .ef-collapse-btn svg{transition:transform .3s;}
+    .ef-collapse-btn.collapsed svg{transform:rotate(-90deg);}
+
     @media(max-width:640px){
       .ader-grid{grid-template-columns:repeat(2,1fr);}
       .blks-row{grid-template-columns:1fr;}
@@ -281,7 +290,13 @@
         <span id="ef-dot" style="width:7px;height:7px;border-radius:50%;background:#FCC200;display:inline-block;animation:pulse 1s infinite;"></span>
         <span id="ef-txt">Conectando…</span>
       </div>
+      <button class="ef-collapse-btn" id="ef-collapse-btn" onclick="efToggle()">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg>
+        <span id="ef-collapse-lbl">Recolher</span>
+      </button>
     </div>
+
+    <div class="ef-body expanded" id="ef-body" style="max-height:600px">
 
     <!-- Métricas -->
     <div class="ef-metrics">
@@ -334,6 +349,8 @@
     <div style="font-size:11px;color:var(--vm);margin-top:8px;padding:0 2px;">
       Webhook 55PBX → Supabase · polling 3s · tempo calculado via <code>received_at</code>
     </div>
+
+    </div><!-- /ef-body -->
   </div>
 
   <!-- ═══ BLOCO TICKETS ═══ -->
@@ -571,6 +588,28 @@ async function efFetch() {
 // Polling a cada 3s
 efFetch();
 setInterval(efFetch, 3000);
+
+// Recolher/expandir tabela Em Fila
+function efToggle() {
+  var body = document.getElementById('ef-body');
+  var btn  = document.getElementById('ef-collapse-btn');
+  var lbl  = document.getElementById('ef-collapse-lbl');
+  var expanded = !body.classList.contains('collapsed');
+  if (expanded) {
+    body.style.maxHeight = body.scrollHeight + 'px';
+    requestAnimationFrame(function(){
+      body.classList.add('collapsed');
+      body.style.maxHeight = '0';
+      btn.classList.add('collapsed');
+      lbl.textContent = 'Expandir';
+    });
+  } else {
+    body.classList.remove('collapsed');
+    body.style.maxHeight = '600px';
+    btn.classList.remove('collapsed');
+    lbl.textContent = 'Recolher';
+  }
+}
 
 // Ticker 1s para atualizar timers de espera
 setInterval(function(){
