@@ -296,9 +296,7 @@
       </button>
     </div>
 
-    <div class="ef-body expanded" id="ef-body" style="max-height:600px">
-
-    <!-- Métricas -->
+    <!-- Métricas — sempre visíveis -->
     <div class="ef-metrics">
       <div class="ef-metric">
         <div class="ef-metric-lbl">Na fila agora</div>
@@ -316,7 +314,10 @@
         <div class="ef-metric-lbl">Atualizado</div>
         <div class="ef-metric-val" id="ef-upd" style="font-size:14px;color:var(--vm)">—</div>
       </div>
-    </div>
+    </div><!-- /ef-metrics -->
+
+    <!-- Filtros + Tabela (recolhível) -->
+    <div class="ef-body expanded" id="ef-body" style="max-height:600px">
 
     <!-- Filtros -->
     <div class="ef-filter-bar">
