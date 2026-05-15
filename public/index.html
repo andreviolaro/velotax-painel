@@ -637,23 +637,12 @@ async function fetchPBX() {
 
     if (resNotas && resNotas.ok) {
       const notas = await resNotas.json();
-      if (notas.notaAtendente) d.quizAverageAttendant = notas.notaAtendente;
-      if (notas.notaSolucao)   d.quizAverageSolution  = notas.notaSolucao;
-      if (notas.totalAvaliacoes) d._totalAvaliacoes   = notas.totalAvaliacoes;
       if (notas.medias_por_campo) {
         const campos = Object.keys(notas.medias_por_campo);
-        // medias_por_campo já vem com escala correta (proxy inverte 6-nota)
-        // quizAverageAttendant/Solution serão invertidos em renderTelCards — então aqui passamos o valor invertido de volta para cancelar
-        // ou seja: se proxy retornou 4.80, passamos como está e renderTelCards fará 6-4.80=1.20 (errado)
-        // Solução: quando vier de medias_por_campo, colocamos o valor já corrigido e sinalizamos
-        if (campos.length >= 1) {
-          var mediaAtt = notas.medias_por_campo[campos[0]].media;
-          d.quizAverageAttendant = String(6 - mediaAtt); // pré-inverte para cancelar a inversão do renderTelCards
-        }
-        if (campos.length >= 2) {
-          var mediaSol = notas.medias_por_campo[campos[1]].media;
-          d.quizAverageSolution = String(6 - mediaSol);
-        }
+        // proxy retorna media na escala ORIGINAL da 55PBX (1=bom, 5=ruim)
+        // renderTelCards aplica 6-nota para inverter — passamos o valor bruto
+        if (campos.length >= 1) d.quizAverageAttendant = String(notas.medias_por_campo[campos[0]].media);
+        if (campos.length >= 2) d.quizAverageSolution  = String(notas.medias_por_campo[campos[1]].media);
         if (campos.length >= 1) d._totalAvaliacoes = notas.medias_por_campo[campos[0]].total;
       }
       window._notas = notas;
