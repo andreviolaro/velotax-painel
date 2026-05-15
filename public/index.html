@@ -322,8 +322,10 @@
     <!-- Filtros -->
     <div class="ef-filter-bar">
       <button class="ef-filter active" onclick="efSetFilter('all',this)">Todas</button>
-      <button class="ef-filter" onclick="efSetFilter('waiting',this)">Aguardando</button>
-      <button class="ef-filter" onclick="efSetFilter('ringing',this)">Tocando</button>
+      <button class="ef-filter" onclick="efSetFilter('em_ura',this)">Em URA</button>
+      <button class="ef-filter" onclick="efSetFilter('em_fila',this)">Aguardando</button>
+      <button class="ef-filter" onclick="efSetFilter('tocando',this)">Tocando</button>
+      <button class="ef-filter" onclick="efSetFilter('em_atendimento',this)">Em atendimento</button>
     </div>
 
     <!-- Tabela -->
@@ -511,10 +513,8 @@ function efSetFilter(f, btn) {
 function efRenderTable() {
   var now = Date.now();
   var calls = _efCalls.filter(function(c){
-    if (_efFilter === 'all')     return true;
-    if (_efFilter === 'waiting') return c.call_status === 'em_fila' || !c.call_status;
-    if (_efFilter === 'ringing') return c.call_status !== 'em_fila';
-    return true;
+    if (_efFilter === 'all') return true;
+    return c.call_status === _efFilter;
   });
 
   var tbody = document.getElementById('ef-tbody');
