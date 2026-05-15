@@ -56,21 +56,7 @@ export default async function handler(req, res) {
 
   // ── POST → webhook da 55PBX ──────────────────────────────────
   if (req.method === 'POST') {
-    // Valida secret: aceita via header OU via campo no body (como a 55PBX envia)
-    if (WEBHOOK_SECRET) {
-      const headerToken = req.headers['x-webhook-secret']
-        || req.headers['authorization']?.replace('Bearer ', '')
-        || '';
-      const bodyToken = req.body?.chave || req.body?.key || req.body?.secret || '';
-      const token = headerToken || bodyToken;
-
-      if (token !== WEBHOOK_SECRET) {
-        console.warn('[fila] token inválido | header:', headerToken, '| body:', bodyToken);
-        // Log do body para diagnóstico sem bloquear — remove depois de confirmar
-        console.log('[fila] body recebido:', JSON.stringify(req.body || {}).substring(0, 300));
-        return res.status(401).json({ error: 'Unauthorized' });
-      }
-    }
+    // A 55PBX não envia token — validação desabilitada
 
     const body = req.body;
 
