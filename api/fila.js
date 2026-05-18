@@ -77,7 +77,9 @@ export default async function handler(req, res) {
         await supabase('DELETE', `calls_in_queue?call_id=eq.${callId}`);
 
         const waitingSecs = parseInt(body.call_time_waiting) || 0;
-        if (recept && waitingSecs > 0 && body.call_queue) {
+        // Grava no histórico SEMPRE que for receptivo com fila — mesmo wait=0 (abandonadas)
+        // Isso garante que pushes tardios não reinsiram chamadas já encerradas
+        if (recept && body.call_queue) {
           await supabase('POST', 'calls_history_today', {
             call_id:           callId,
             call_queue:        body.call_queue,

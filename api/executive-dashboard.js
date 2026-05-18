@@ -74,8 +74,8 @@ export default async function handler(req, res) {
         const active_now = activeByQueue[q] || 0;
         return { queue: q, waiting_now: active_now, avg_wait_s: avg, max_wait_s: max };
       })
-      // Mostra só filas que têm espera agora ou tiveram espera hoje
-      .filter(q => q.waiting_now > 0 || q.avg_wait_s > 0)
+      // Mostra só filas com chamadas ativas agora
+      .filter(q => q.waiting_now > 0)
       .sort((a,b) => b.waiting_now - a.waiting_now);
 
     return res.status(200).json({
