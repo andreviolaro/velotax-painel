@@ -1,9 +1,10 @@
 /**
  * api/fila.js — Velotax Telefonia "Em Fila"
  *
- * Problema identificado: a 55PBX envia 3+ pushes por ligação.
- * Solução: só insere na fila se o call_id não estiver no histórico de hoje
- * (ou seja, se ainda não foi encerrado).
+ * Solução definitiva para pushes tardios da 55PBX:
+ * Em vez de deletar no 2º push, marca como finished_at.
+ * Pushes tardios fazem upsert mas não apagam o finished_at (campo not null = encerrado).
+ * O GET filtra apenas chamadas sem finished_at.
  */
 
 const SUPABASE_URL         = process.env.SUPABASE_URL;
@@ -41,14 +42,17 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-webhook-secret');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ── GET → chamadas ativas agora ───────────────────────────
+  // ── GET → chamadas ativas (sem finished_at) ───────────────
   if (req.method === 'GET') {
     try {
-      // Limpeza de segurança: remove chamadas com mais de 2h
+      // Limpa chamadas antigas (>2h) para evitar acúmulo
       await supabase('DELETE',
         `calls_in_queue?received_at=lt.${new Date(Date.now() - 2*60*60*1000).toISOString()}`
       );
-      const calls = await supabase('GET', 'calls_in_queue?order=received_at.asc');
+      // Retorna apenas chamadas ainda na fila (sem finished_at)
+      const calls = await supabase('GET',
+        'calls_in_queue?finished_at=is.null&order=received_at.asc'
+      );
       return res.status(200).json({ ok: true, calls });
     } catch (err) {
       return res.status(500).json({ ok: false, error: err.message });
@@ -73,49 +77,92 @@ export default async function handler(req, res) {
 
     try {
       if (!first) {
-        // ── 2º push (tem áudio ou call_time > 0) → encerra ──────
-        await supabase('DELETE', `calls_in_queue?call_id=eq.${callId}`);
-
+        // ── 2º push — marca como encerrada (finished_at) ─────
+        const now = new Date().toISOString();
         const waitingSecs = parseInt(body.call_time_waiting) || 0;
-        // Grava no histórico SEMPRE que for receptivo com fila — mesmo wait=0 (abandonadas)
-        // Isso garante que pushes tardios não reinsiram chamadas já encerradas
+
+        // Marca a chamada como encerrada na calls_in_queue
+        // Upsert: se não existia, cria com finished_at; se existia, atualiza finished_at
+        await supabase('POST', 'calls_in_queue', {
+          call_id:        callId,
+          call_number:    body.call_number    || '',
+          call_area_code: body.call_area_code || '',
+          call_queue:     body.call_queue     || '',
+          call_type:      body.call_type      || '',
+          call_status:    body.call_status    || '',
+          call_ura:       body.call_ura       || '',
+          central_id:     body.central_id     || '',
+          branch_mask:    String(body.branch_mask || ''),
+          received_at:    now,
+          finished_at:    now,  // ← marca como encerrada
+        });
+
+        // Grava no histórico com tempo real de espera
         if (recept && body.call_queue) {
           await supabase('POST', 'calls_history_today', {
             call_id:           callId,
             call_queue:        body.call_queue,
             call_time_waiting: waitingSecs,
             call_status:       body.call_status || '',
-            finished_at:       new Date().toISOString(),
+            finished_at:       now,
           });
         }
-        console.log(`[fila] -dequeued ${callId} | wait: ${waitingSecs}s | status: ${body.call_status}`);
+
+        console.log(`[fila] -finished ${callId} | wait: ${waitingSecs}s | status: ${body.call_status}`);
 
       } else if (recept && body.call_queue) {
-        // ── Push sem áudio/tempo — só insere se NÃO foi encerrado ainda ──
-        // Verifica se já está no histórico de hoje (já encerrado)
-        const already = await supabase('GET',
-          `calls_history_today?call_id=eq.${callId}&select=call_id&limit=1`
+        // ── 1º push — insere/atualiza SOMENTE se não estiver encerrada ──
+        // O upsert com "resolution=merge-duplicates" atualiza campos
+        // MAS não sobrescreve finished_at se já estiver preenchido
+        // (usamos PATCH condicional via query filter)
+        const patchRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/calls_in_queue?call_id=eq.${callId}&finished_at=is.null`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: SUPABASE_SERVICE_KEY,
+              Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({
+              call_number:    body.call_number    || '',
+              call_area_code: body.call_area_code || '',
+              call_queue:     body.call_queue,
+              call_type:      body.call_type      || '',
+              call_status:    'em_fila',
+            }),
+          }
         );
 
-        if (already && already.length > 0) {
-          // Já encerrado — ignora e garante remoção da fila ativa
-          await supabase('DELETE', `calls_in_queue?call_id=eq.${callId}`);
-          console.log(`[fila] IGNORADO ${callId} — já no histórico (encerrado)`);
+        // Se não atualizou nenhuma linha (chamada não existe ou já encerrada)
+        const count = patchRes.headers.get('content-range');
+        if (!count || count === '*/0') {
+          // Verifica se já existe encerrada
+          const existing = await supabase('GET',
+            `calls_in_queue?call_id=eq.${callId}&select=finished_at&limit=1`
+          );
+          if (existing && existing.length > 0 && existing[0].finished_at) {
+            console.log(`[fila] IGNORADO ${callId} — já encerrada`);
+          } else {
+            // Nova chamada — insere
+            await supabase('POST', 'calls_in_queue', {
+              call_id:        callId,
+              call_number:    body.call_number    || '',
+              call_area_code: body.call_area_code || '',
+              call_queue:     body.call_queue,
+              call_type:      body.call_type      || '',
+              call_status:    'em_fila',
+              call_ura:       body.call_ura       || '',
+              central_id:     body.central_id     || '',
+              branch_mask:    String(body.branch_mask || ''),
+              received_at:    new Date().toISOString(),
+              finished_at:    null,
+            });
+            console.log(`[fila] +queued ${callId} → ${body.call_queue}`);
+          }
         } else {
-          // Ainda não encerrado — insere/atualiza na fila ativa
-          await supabase('POST', 'calls_in_queue', {
-            call_id:        callId,
-            call_number:    body.call_number    || '',
-            call_area_code: body.call_area_code || '',
-            call_queue:     body.call_queue,
-            call_type:      body.call_type      || '',
-            call_status:    'em_fila',
-            call_ura:       body.call_ura       || '',
-            central_id:     body.central_id     || '',
-            branch_mask:    String(body.branch_mask || ''),
-            received_at:    new Date().toISOString(),
-          });
-          console.log(`[fila] +queued ${callId} → ${body.call_queue}`);
+          console.log(`[fila] ~updated ${callId} → ${body.call_queue}`);
         }
       }
     } catch (err) {
