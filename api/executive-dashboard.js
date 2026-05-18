@@ -1,9 +1,9 @@
 /**
- * api/executive-dashboard.js — Velotax Dashboard Executivo Receptivo
+ * api/executive-dashboard.js — Dashboard Executivo Receptivo
  *
  * GET /api/executive-dashboard
- * Retorna KPIs em tempo real por fila, lidos do Supabase
- * (gravados pelo proxy local via WebSocket 55PBX)
+ * Calcula KPIs em tempo real a partir das chamadas ativas no Supabase
+ * (gravadas pelo webhook da 55PBX via api/fila.js)
  */
 
 const SUPABASE_URL         = process.env.SUPABASE_URL;
@@ -28,44 +28,60 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).end();
 
   try {
-    const queues = await supabaseGet(
-      'realtime_queues?order=queue_name.asc&select=*'
-    );
+    const calls = await supabaseGet('calls_in_queue?order=received_at.asc&select=*');
+    const now   = Date.now();
 
-    // Calcula totais
-    const totals = queues.reduce((acc, q) => ({
-      in_ura:           acc.in_ura           + (q.in_ura           || 0),
-      waiting_human:    acc.waiting_human    + (q.waiting_human    || 0),
-      in_human_service: acc.in_human_service + (q.in_human_service || 0),
-      free_agents:      acc.free_agents      + (q.free_agents      || 0),
-    }), { in_ura: 0, waiting_human: 0, in_human_service: 0, free_agents: 0 });
+    // Agrupa por fila
+    const queueMap = {};
+    for (const call of calls) {
+      const queue = call.call_queue || 'Sem fila';
+      if (!queueMap[queue]) {
+        queueMap[queue] = { queue, calls: [], waiting: 0, max_wait_s: 0, avg_wait_s: 0 };
+      }
+      const waitS = Math.floor((now - new Date(call.received_at).getTime()) / 1000);
+      queueMap[queue].calls.push({ ...call, wait_s: waitS });
+      queueMap[queue].waiting++;
+      if (waitS > queueMap[queue].max_wait_s) queueMap[queue].max_wait_s = waitS;
+    }
 
-    // Idade do dado mais antigo (proxy pode ter parado)
-    const oldest = queues.reduce((min, q) => {
-      const t = new Date(q.updated_at).getTime();
-      return t < min ? t : min;
-    }, Date.now());
-    const age_ms = queues.length ? Date.now() - oldest : null;
-    const online = age_ms !== null && age_ms < 30000;
+    // Calcula médias
+    const by_queue = Object.values(queueMap).map(q => {
+      const avg = q.calls.reduce((s, c) => s + c.wait_s, 0) / q.calls.length;
+      return {
+        queue:         q.queue,
+        waiting_human: q.waiting,
+        max_wait_s:    q.max_wait_s,
+        avg_wait_s:    Math.round(avg),
+        calls:         q.calls.map(c => ({
+          call_id:        c.call_id,
+          call_number:    c.call_number,
+          call_area_code: c.call_area_code,
+          call_status:    c.call_status,
+          received_at:    c.received_at,
+          wait_s:         c.wait_s,
+        })),
+      };
+    });
+
+    // Totais globais
+    const allWaits = calls.map(c => Math.floor((now - new Date(c.received_at).getTime()) / 1000));
+    const totalWaiting = calls.length;
+    const maxWait = allWaits.length ? Math.max(...allWaits) : 0;
+    const avgWait = allWaits.length ? Math.round(allWaits.reduce((a,b)=>a+b,0) / allWaits.length) : 0;
 
     return res.status(200).json({
       meta: {
-        fonte:  'websocket_55pbx_via_supabase',
-        online,
-        age_ms,
-        queues_count: queues.length,
+        fonte:       'webhook_55pbx_supabase',
+        online:      true,
+        ts:          now,
+        total_calls: calls.length,
       },
-      totals,
-      by_queue: queues.map(q => ({
-        queue:            q.queue_name,
-        in_ura:           q.in_ura           || 0,
-        waiting_human:    q.waiting_human    || 0,
-        in_human_service: q.in_human_service || 0,
-        free_agents:      q.free_agents      || 0,
-        agents_paused:    q.agents_paused    || 0,
-        agents_busy:      q.agents_busy      || 0,
-        updated_at:       q.updated_at,
-      })),
+      totals: {
+        waiting_human: totalWaiting,
+        max_wait_s:    maxWait,
+        avg_wait_s:    avgWait,
+      },
+      by_queue,
     });
 
   } catch (err) {
