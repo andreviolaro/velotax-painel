@@ -296,23 +296,23 @@
       </button>
     </div>
 
-    <!-- Métricas executivas — WebSocket 55PBX (sem cache) -->
+    <!-- Métricas — dados reais do webhook 55PBX -->
     <div class="ef-metrics" id="ef-exec-metrics">
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Em URA</div>
-        <div class="ef-metric-val" id="ef-in-ura" style="color:var(--vt)">—</div>
+        <div class="ef-metric-lbl">Na fila agora</div>
+        <div class="ef-metric-val" id="ef-waiting" style="color:var(--vb)">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Aguardando humano</div>
-        <div class="ef-metric-val" id="ef-waiting" style="color:#b38000">—</div>
+        <div class="ef-metric-lbl">Espera média</div>
+        <div class="ef-metric-val" id="ef-avg-wait" style="color:#b38000">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Em atendimento</div>
-        <div class="ef-metric-val" id="ef-in-service" style="color:var(--vb)">—</div>
+        <div class="ef-metric-lbl">Maior espera</div>
+        <div class="ef-metric-val" id="ef-max-wait" style="color:#e03030">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Agentes livres</div>
-        <div class="ef-metric-val" id="ef-free-agents" style="color:var(--vg)">—</div>
+        <div class="ef-metric-lbl">Filas ativas</div>
+        <div class="ef-metric-val" id="ef-queues-count" style="color:var(--vg)">—</div>
       </div>
     </div>
 
@@ -324,10 +324,9 @@
           <thead>
             <tr style="background:#F8FAFC;border-bottom:1px solid var(--bo)">
               <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Fila</th>
-              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">URA</th>
-              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Aguardando</th>
-              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Atendimento</th>
-              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Livres</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Na fila</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Espera média</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Maior espera</th>
             </tr>
           </thead>
           <tbody id="ef-queue-tbody"></tbody>
@@ -338,7 +337,7 @@
     <!-- Tabela detalhada por chamada (recolhível) -->
     <div class="ef-body expanded" id="ef-body" style="max-height:800px">
     <div style="font-size:11px;color:var(--vm);margin-top:8px;padding:0 2px;">
-      WebSocket 55PBX → proxy local → Supabase → Vercel · atualizado a cada 3s
+      Webhook 55PBX → Supabase · atualizado a cada 3s
     </div>
 
     </div><!-- /ef-body -->
@@ -551,32 +550,28 @@ function efRenderMetrics() {
 
 async function efFetch() {
   try {
-    // Busca dashboard executivo da Vercel Function (lê do Supabase, gravado pelo proxy local)
     var res = await fetch('/api/executive-dashboard', { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
 
     var dot = document.getElementById('ef-dot');
     var txt = document.getElementById('ef-txt');
-    var online = data.meta && data.meta.online;
+    if (dot) { dot.style.background = '#00d97e'; dot.style.animation = 'pulseGreen 1.4s infinite'; }
+    if (txt) txt.textContent = 'Ao vivo · ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
-    if (dot) {
-      dot.style.background = online ? '#00d97e' : '#FCC200';
-      dot.style.animation  = online ? 'pulseGreen 1.4s infinite' : 'pulse 1s infinite';
-    }
-    if (txt) txt.textContent = online
-      ? 'Ao vivo · ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-      : 'Aguardando dados do WebSocket…';
-
-    // Atualiza totais
     var t = data.totals || {};
     var setV = function(id, v) { var el = document.getElementById(id); if(el) el.textContent = (v !== undefined && v !== null) ? v : '—'; };
-    setV('ef-in-ura',      t.in_ura);
-    setV('ef-waiting',     t.waiting_human);
-    setV('ef-in-service',  t.in_human_service);
-    setV('ef-free-agents', t.free_agents);
 
-    // Atualiza tabela por fila
+    setV('ef-waiting',      t.waiting_human);
+    setV('ef-avg-wait',     t.avg_wait_s !== undefined ? fmtSecs(t.avg_wait_s) : '—');
+    setV('ef-max-wait',     t.max_wait_s !== undefined ? fmtSecs(t.max_wait_s) : '—');
+    setV('ef-queues-count', (data.by_queue || []).length);
+
+    var maxEl = document.getElementById('ef-max-wait');
+    if (maxEl && t.max_wait_s > 120) maxEl.style.color = '#e03030';
+    else if (maxEl && t.max_wait_s > 60) maxEl.style.color = '#b38000';
+    else if (maxEl) maxEl.style.color = '#15A237';
+
     var byQueue = data.by_queue || [];
     var tbody = document.getElementById('ef-queue-tbody');
     var wrap  = document.getElementById('ef-by-queue-wrap');
@@ -585,10 +580,9 @@ async function efFetch() {
       tbody.innerHTML = byQueue.map(function(q) {
         return '<tr style="border-bottom:1px solid var(--bo)">'
           + '<td style="padding:9px 12px;font-weight:500">' + (q.queue || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;color:var(--vt);font-weight:600">' + (q.in_ura || 0) + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;color:#b38000;font-weight:600">' + (q.waiting_human || 0) + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;color:var(--vb);font-weight:600">' + (q.in_human_service || 0) + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;color:var(--vg);font-weight:600">' + (q.free_agents || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:var(--vb);font-weight:600">' + (q.waiting_human || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:#b38000;font-weight:600">' + fmtSecs(q.avg_wait_s || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:#e03030;font-weight:600">' + fmtSecs(q.max_wait_s || 0) + '</td>'
           + '</tr>';
       }).join('');
     } else if (wrap) {
@@ -599,9 +593,15 @@ async function efFetch() {
     var dot = document.getElementById('ef-dot');
     var txt = document.getElementById('ef-txt');
     if (dot) { dot.style.background = '#e03030'; dot.style.animation = 'none'; }
-    if (txt) txt.textContent = 'Erro: proxy não acessível';
+    if (txt) txt.textContent = 'Erro de conexão';
     console.warn('[efFetch]', e.message);
   }
+}
+
+function fmtSecs(s) {
+  if (!s || s === 0) return '0s';
+  if (s < 60) return s + 's';
+  return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0');
 }
 
 // Atualiza dashboard a cada 3s via proxy local
