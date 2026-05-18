@@ -296,61 +296,49 @@
       </button>
     </div>
 
-    <!-- Métricas — sempre visíveis -->
-    <div class="ef-metrics">
+    <!-- Métricas executivas — WebSocket 55PBX (sem cache) -->
+    <div class="ef-metrics" id="ef-exec-metrics">
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Na fila agora</div>
-        <div class="ef-metric-val" id="ef-count" style="color:var(--vb)">—</div>
+        <div class="ef-metric-lbl">Em URA</div>
+        <div class="ef-metric-val" id="ef-in-ura" style="color:var(--vt)">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Espera média</div>
-        <div class="ef-metric-val" id="ef-avg" style="color:#b38000">—</div>
+        <div class="ef-metric-lbl">Aguardando humano</div>
+        <div class="ef-metric-val" id="ef-waiting" style="color:#b38000">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Maior espera</div>
-        <div class="ef-metric-val" id="ef-max" style="color:#e03030">—</div>
+        <div class="ef-metric-lbl">Em atendimento</div>
+        <div class="ef-metric-val" id="ef-in-service" style="color:var(--vb)">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Atualizado</div>
-        <div class="ef-metric-val" id="ef-upd" style="font-size:14px;color:var(--vm)">—</div>
+        <div class="ef-metric-lbl">Agentes livres</div>
+        <div class="ef-metric-val" id="ef-free-agents" style="color:var(--vg)">—</div>
+      </div>
+    </div>
+
+    <!-- Tabela por fila — sempre visível -->
+    <div id="ef-by-queue-wrap" style="margin-bottom:14px;display:none">
+      <div style="font-size:12px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Por fila</div>
+      <div style="background:#fff;border:1px solid var(--bo);border-radius:10px;overflow:hidden">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="background:#F8FAFC;border-bottom:1px solid var(--bo)">
+              <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Fila</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">URA</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Aguardando</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Atendimento</th>
+              <th style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;color:var(--vm);text-transform:uppercase;letter-spacing:0.04em">Livres</th>
+            </tr>
+          </thead>
+          <tbody id="ef-queue-tbody"></tbody>
+        </table>
       </div>
     </div><!-- /ef-metrics -->
 
-    <!-- Filtros + Tabela (recolhível) -->
-    <div class="ef-body expanded" id="ef-body" style="max-height:600px">
-
-    <!-- Filtros -->
-    <div class="ef-filter-bar">
-      <button class="ef-filter active" onclick="efSetFilter('all',this)">Todas</button>
-      <button class="ef-filter" onclick="efSetFilter('em_ura',this)">Em URA</button>
-      <button class="ef-filter" onclick="efSetFilter('em_fila',this)">Aguardando</button>
-      <button class="ef-filter" onclick="efSetFilter('tocando',this)">Tocando</button>
-      <button class="ef-filter" onclick="efSetFilter('em_atendimento',this)">Em atendimento</button>
-    </div>
-
-    <!-- Tabela -->
-    <div class="ef-table-wrap">
-      <table class="ef-table">
-        <thead>
-          <tr>
-            <th style="width:32px">#</th>
-            <th>Número</th>
-            <th>Fila</th>
-            <th>Espera</th>
-            <th>Entrada</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="ef-tbody">
-          <tr><td colspan="6"><div class="ef-empty">
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-5.33-5.33 19.79 19.79 0 01-3.07-8.63A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-            <span style="font-size:13px">Carregando…</span>
-          </div></td></tr>
-        </tbody>
-      </table>
-    </div>
+    <!-- Tabela detalhada por chamada (recolhível) -->
+    <div class="ef-body expanded" id="ef-body" style="max-height:800px">
     <div style="font-size:11px;color:var(--vm);margin-top:8px;padding:0 2px;">
-      Webhook 55PBX → Supabase · polling 3s · tempo calculado via <code>received_at</code>
+      WebSocket 55PBX Realtime · sem cache · atualizado a cada 3s pelo proxy local
     </div>
 
     </div><!-- /ef-body -->
@@ -563,30 +551,60 @@ function efRenderMetrics() {
 
 async function efFetch() {
   try {
-    var res = await fetch('/api/fila', { signal: AbortSignal.timeout(8000) });
+    // Busca dashboard executivo do proxy (WebSocket 55PBX, sem cache)
+    var res = await fetch(PROXY + '/pbx/realtime-dashboard', { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
-    _efCalls = data.calls || [];
 
     var dot = document.getElementById('ef-dot');
     var txt = document.getElementById('ef-txt');
-    if (dot) { dot.style.background = '#00d97e'; dot.style.animation = 'pulseGreen 1.4s infinite'; }
-    if (txt) txt.textContent = 'Ao vivo · ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    var online = data.meta && data.meta.online;
 
-    var upd = document.getElementById('ef-upd');
-    if (upd) upd.textContent = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    if (dot) {
+      dot.style.background = online ? '#00d97e' : '#FCC200';
+      dot.style.animation  = online ? 'pulseGreen 1.4s infinite' : 'pulse 1s infinite';
+    }
+    if (txt) txt.textContent = online
+      ? 'Ao vivo · ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
+      : 'Aguardando dados do WebSocket…';
 
-    efRenderMetrics();
-    efRenderTable();
+    // Atualiza totais
+    var t = data.totals || {};
+    var setV = function(id, v) { var el = document.getElementById(id); if(el) el.textContent = (v !== undefined && v !== null) ? v : '—'; };
+    setV('ef-in-ura',      t.in_ura);
+    setV('ef-waiting',     t.waiting_human);
+    setV('ef-in-service',  t.in_human_service);
+    setV('ef-free-agents', t.free_agents);
+
+    // Atualiza tabela por fila
+    var byQueue = data.by_queue || [];
+    var tbody = document.getElementById('ef-queue-tbody');
+    var wrap  = document.getElementById('ef-by-queue-wrap');
+    if (byQueue.length && tbody) {
+      if (wrap) wrap.style.display = 'block';
+      tbody.innerHTML = byQueue.map(function(q) {
+        return '<tr style="border-bottom:1px solid var(--bo)">'
+          + '<td style="padding:9px 12px;font-weight:500">' + (q.queue || '—') + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:var(--vt);font-weight:600">' + (q.in_ura || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:#b38000;font-weight:600">' + (q.waiting_human || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:var(--vb);font-weight:600">' + (q.in_human_service || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:var(--vg);font-weight:600">' + (q.free_agents || 0) + '</td>'
+          + '</tr>';
+      }).join('');
+    } else if (wrap) {
+      wrap.style.display = 'none';
+    }
+
   } catch(e) {
     var dot = document.getElementById('ef-dot');
     var txt = document.getElementById('ef-txt');
     if (dot) { dot.style.background = '#e03030'; dot.style.animation = 'none'; }
-    if (txt) txt.textContent = 'Erro de conexão';
+    if (txt) txt.textContent = 'Erro: proxy não acessível';
+    console.warn('[efFetch]', e.message);
   }
 }
 
-// Polling a cada 3s
+// Atualiza dashboard a cada 3s via proxy local
 efFetch();
 setInterval(efFetch, 3000);
 
