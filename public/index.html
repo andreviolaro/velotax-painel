@@ -338,7 +338,7 @@
     <!-- Tabela detalhada por chamada (recolhível) -->
     <div class="ef-body expanded" id="ef-body" style="max-height:800px">
     <div style="font-size:11px;color:var(--vm);margin-top:8px;padding:0 2px;">
-      WebSocket 55PBX Realtime · sem cache · atualizado a cada 3s pelo proxy local
+      WebSocket 55PBX → proxy local → Supabase → Vercel · atualizado a cada 3s
     </div>
 
     </div><!-- /ef-body -->
@@ -551,8 +551,8 @@ function efRenderMetrics() {
 
 async function efFetch() {
   try {
-    // Busca dashboard executivo do proxy (WebSocket 55PBX, sem cache)
-    var res = await fetch(PROXY + '/pbx/realtime-dashboard', { signal: AbortSignal.timeout(8000) });
+    // Busca dashboard executivo da Vercel Function (lê do Supabase, gravado pelo proxy local)
+    var res = await fetch('/api/executive-dashboard', { signal: AbortSignal.timeout(8000) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     var data = await res.json();
 
