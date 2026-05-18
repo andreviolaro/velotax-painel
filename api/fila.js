@@ -1,11 +1,5 @@
 /**
  * api/fila.js — Velotax Telefonia "Em Fila"
- *
- * POST → recebe webhook da 55PBX
- *   1º push: grava em calls_in_queue (chamada aguardando)
- *   2º push: remove de calls_in_queue + grava em calls_history_today (tempo real de espera)
- *
- * GET → retorna chamadas ativas agora (calls_in_queue)
  */
 
 const SUPABASE_URL         = process.env.SUPABASE_URL;
@@ -26,6 +20,9 @@ async function supabase(method, path, body) {
   return method === 'GET' ? res.json() : res.status;
 }
 
+// 1º push: sem áudio E sem tempo de fala
+// IMPORTANTE: call_time_waiting pode existir em ambos os pushes
+// A distinção confiável é call_url_audio (só vem no 2º) e call_time > 0 (só no 2º)
 function isFirstPush(body) {
   const hasAudio = body.call_url_audio && String(body.call_url_audio).trim() !== '';
   const hasTime  = Number(body.call_time) > 0;
@@ -43,9 +40,11 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-webhook-secret');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ── GET → chamadas ativas agora ───────────────────────────────
+  // ── GET → chamadas ativas agora ───────────────────────────
   if (req.method === 'GET') {
     try {
+      // Remove automaticamente chamadas com mais de 2 horas (segurança contra travamentos)
+      await supabase('DELETE', `calls_in_queue?received_at=lt.${new Date(Date.now() - 2*60*60*1000).toISOString()}`);
       const calls = await supabase('GET', 'calls_in_queue?order=received_at.asc');
       return res.status(200).json({ ok: true, calls });
     } catch (err) {
@@ -53,61 +52,62 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── POST → webhook 55PBX ──────────────────────────────────────
+  // ── POST → webhook 55PBX ──────────────────────────────────
   if (req.method === 'POST') {
     const body = req.body;
     if (!body?.call_id) return res.status(400).json({ error: 'call_id ausente' });
 
-    const callId = String(body.call_id);
+    const callId  = String(body.call_id);
+    const first   = isFirstPush(body);
+    const recept  = isReceptive(body);
 
-    console.log('[fila] POST | call_id:', callId,
-      '| call_type:', body.call_type,
-      '| call_queue:', body.call_queue || '(vazio)',
-      '| call_time_waiting:', body.call_time_waiting,
-      '| isFirst:', isFirstPush(body),
-      '| isReceptive:', isReceptive(body));
+    console.log('[fila]', callId,
+      '| type:', body.call_type,
+      '| queue:', body.call_queue || '(vazio)',
+      '| call_time:', body.call_time,
+      '| audio:', body.call_url_audio ? 'SIM' : 'NÃO',
+      '| wait:', body.call_time_waiting,
+      '| isFirst:', first,
+      '| isReceptive:', recept);
 
     try {
-      if (isFirstPush(body) && isReceptive(body)) {
-        // 1º push — chamada entra na fila
-        if (body.call_queue) {
-          await supabase('POST', 'calls_in_queue', {
-            call_id:        callId,
-            call_number:    body.call_number    || '',
-            call_area_code: body.call_area_code || '',
-            call_queue:     body.call_queue,
-            call_type:      body.call_type      || '',
-            call_status:    body.call_status    || 'em_fila',
-            call_ura:       body.call_ura       || '',
-            central_id:     body.central_id     || '',
-            branch_mask:    String(body.branch_mask || ''),
-            received_at:    new Date().toISOString(),
-          });
-          console.log(`[fila] +queued ${callId} → ${body.call_queue}`);
-        }
-      } else {
-        // 2º push — chamada encerrada
+      if (first && recept && body.call_queue) {
+        // 1º push com fila — insere como aguardando
+        await supabase('POST', 'calls_in_queue', {
+          call_id:        callId,
+          call_number:    body.call_number    || '',
+          call_area_code: body.call_area_code || '',
+          call_queue:     body.call_queue,
+          call_type:      body.call_type      || '',
+          call_status:    'em_fila',
+          call_ura:       body.call_ura       || '',
+          central_id:     body.central_id     || '',
+          branch_mask:    String(body.branch_mask || ''),
+          received_at:    new Date().toISOString(),
+        });
+        console.log(`[fila] +queued ${callId} → ${body.call_queue}`);
 
-        // Remove da fila ativa
+      } else {
+        // 2º push OU qualquer push sem call_queue — SEMPRE remove da fila
         await supabase('DELETE', `calls_in_queue?call_id=eq.${callId}`);
 
-        // Grava no histórico do dia com o tempo real de espera
-        // call_time_waiting vem em segundos no 2º push
+        // Grava no histórico somente se for receptivo com espera real
         const waitingSecs = parseInt(body.call_time_waiting) || 0;
-        if (isReceptive(body) && waitingSecs > 0) {
+        if (recept && waitingSecs > 0 && body.call_queue) {
           await supabase('POST', 'calls_history_today', {
-            call_id:          callId,
-            call_queue:       body.call_queue || '',
+            call_id:           callId,
+            call_queue:        body.call_queue || '',
             call_time_waiting: waitingSecs,
-            call_status:      body.call_status || '',
-            finished_at:      new Date().toISOString(),
+            call_status:       body.call_status || '',
+            finished_at:       new Date().toISOString(),
           });
+          console.log(`[fila] history ${callId} | wait: ${waitingSecs}s | queue: ${body.call_queue}`);
         }
 
-        console.log(`[fila] -dequeued ${callId} | wait: ${waitingSecs}s | status: ${body.call_status}`);
+        console.log(`[fila] -dequeued ${callId} | status: ${body.call_status}`);
       }
     } catch (err) {
-      console.error('[fila] Supabase error:', err.message);
+      console.error('[fila] error:', err.message);
       return res.status(500).json({ ok: false, error: err.message });
     }
 
