@@ -303,16 +303,12 @@
         <div class="ef-metric-val" id="ef-waiting" style="color:var(--vb)">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Espera média</div>
+        <div class="ef-metric-lbl">Espera média (dia)</div>
         <div class="ef-metric-val" id="ef-avg-wait" style="color:#b38000">—</div>
       </div>
       <div class="ef-metric">
-        <div class="ef-metric-lbl">Maior espera</div>
+        <div class="ef-metric-lbl">Maior espera (dia)</div>
         <div class="ef-metric-val" id="ef-max-wait" style="color:#e03030">—</div>
-      </div>
-      <div class="ef-metric">
-        <div class="ef-metric-lbl">Filas ativas</div>
-        <div class="ef-metric-val" id="ef-queues-count" style="color:var(--vg)">—</div>
       </div>
     </div>
 
@@ -562,10 +558,10 @@ async function efFetch() {
     var t = data.totals || {};
     var setV = function(id, v) { var el = document.getElementById(id); if(el) el.textContent = (v !== undefined && v !== null) ? v : '—'; };
 
-    setV('ef-waiting',      t.waiting_human);
+    setV('ef-waiting', t.waiting_now);
     setV('ef-avg-wait',     t.avg_wait_s !== undefined ? fmtSecs(t.avg_wait_s) : '—');
     setV('ef-max-wait',     t.max_wait_s !== undefined ? fmtSecs(t.max_wait_s) : '—');
-    setV('ef-queues-count', (data.by_queue || []).length);
+    
 
     var maxEl = document.getElementById('ef-max-wait');
     if (maxEl && t.max_wait_s > 120) maxEl.style.color = '#e03030';
@@ -580,7 +576,7 @@ async function efFetch() {
       tbody.innerHTML = byQueue.map(function(q) {
         return '<tr style="border-bottom:1px solid var(--bo)">'
           + '<td style="padding:9px 12px;font-weight:500">' + (q.queue || '—') + '</td>'
-          + '<td style="padding:9px 12px;text-align:center;color:var(--vb);font-weight:600">' + (q.waiting_human || 0) + '</td>'
+          + '<td style="padding:9px 12px;text-align:center;color:var(--vb);font-weight:600">' + (q.waiting_now || 0) + '</td>'
           + '<td style="padding:9px 12px;text-align:center;color:#b38000;font-weight:600">' + fmtSecs(q.avg_wait_s || 0) + '</td>'
           + '<td style="padding:9px 12px;text-align:center;color:#e03030;font-weight:600">' + fmtSecs(q.max_wait_s || 0) + '</td>'
           + '</tr>';
