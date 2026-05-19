@@ -162,6 +162,82 @@ function to55DateAder(dateStr, end) {
 }
 
 async function handleEscala(req, res) {
+  // Tenta Supabase primeiro; fallback para Excel local se SUPA_KEY não disponível
+  if (SUPA_KEY) {
+    try {
+      var r = await new Promise(function(resolve, reject) {
+        var opts = {
+          hostname: 'jxqpisrkjicapvtbyvzp.supabase.co',
+          port: 443,
+          path: '/rest/v1/colaboradores?select=*&ativo=eq.true&order=nome.asc',
+          method: 'GET',
+          headers: {
+            'apikey': SUPA_KEY,
+            'Authorization': 'Bearer ' + SUPA_KEY,
+            'Content-Type': 'application/json',
+          },
+          rejectUnauthorized: false,
+        };
+        var req2 = https.request(opts, function(res2) {
+          var buf = '';
+          res2.on('data', function(c){ buf += c; });
+          res2.on('end', function(){ resolve({ status: res2.statusCode, body: buf }); });
+        });
+        req2.on('error', reject);
+        req2.end();
+      });
+
+      var rows = JSON.parse(r.body);
+      if (!Array.isArray(rows)) throw new Error('resposta invalida');
+
+      var dow = new Date().getDay();
+      var WORK_DAYS_SUP = {
+        'velo':        [1,2,3,4,5],
+        'job_segsex':  [1,2,3,4,5],
+        'job_sabaqua': [0,1,2,3,6],
+        'job_rot':     [1,2,3,4,5,6],
+      };
+
+      var staff = rows.map(function(a) {
+        var tipo = a.tipo_escala || 'velo';
+        var dias = WORK_DAYS_SUP[tipo] || [1,2,3,4,5];
+        var trabalhaHoje = dias.indexOf(dow) !== -1;
+
+        // Verifica folga específica
+        if (trabalhaHoje && a.folga_dia !== null && a.folga_dia !== undefined) {
+          if (a.folga_data) {
+            var hoje = new Date().toISOString().slice(0,10);
+            if (a.folga_data === hoje) trabalhaHoje = false;
+          } else {
+            if (Number(a.folga_dia) === dow) trabalhaHoje = false;
+          }
+        }
+
+        return {
+          id:          a.id,
+          name:        a.nome,
+          nome:        a.nome,
+          empresa:     a.empresa,
+          ramal:       String(a.ramal || ''),
+          entrada:     a.entrada || '09:00',
+          saida:       a.saida   || '18:00',
+          tipo:        tipo,
+          tipo_escala: tipo,
+          trabalhaHoje: trabalhaHoje,
+          grupo:       a.empresa === 'Velotax' ? 'velo' : 'job',
+        };
+      });
+
+      console.log('[ESCALA] Supabase: ' + staff.length + ' colaboradores, ' +
+        staff.filter(function(s){ return s.trabalhaHoje; }).length + ' hoje');
+      res.writeHead(200, Object.assign({'Content-Type':'application/json'}, CORS));
+      return res.end(JSON.stringify(staff));
+    } catch(e) {
+      console.warn('[ESCALA] Supabase erro: ' + e.message + ' — tentando Excel');
+    }
+  }
+
+  // Fallback: Excel local
   var staff = lerEscala();
   if (!staff) {
     res.writeHead(200, Object.assign({'Content-Type':'application/json'}, CORS));
