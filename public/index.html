@@ -516,44 +516,58 @@ async function fetchRealtimeDashboard() {
   const agora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 
   try {
-    // ── Tenta Supabase primeiro (proxy local alimenta via WebSocket) ──
-    let totals = null, byQueue = [], online = false, fonte_nome = '';
+    // ── Estratégia: proxy local direto → Supabase → Railway ──
+    let totals = null, byQueue = [], online = false, proxyAtivo = false;
+    const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
 
+    // 1. Tenta proxy local (localhost:3355) — mais rápido e preciso
     try {
-      const r = await fetch(
-        SUPA_URL + '/rest/v1/realtime_queues?select=*&order=waiting_human.desc',
-        { headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + SUPA_ANON }, signal: AbortSignal.timeout(5000) }
-      );
-      if (r.ok) {
-        const rows = await r.json();
-        if (Array.isArray(rows) && rows.length > 0) {
-          // Verifica TTL — pega o updated_at mais recente
-          const maxTs = Math.max(...rows.map(q => new Date(q.updated_at).getTime()));
-          const ageMs = Date.now() - maxTs;
-          if (ageMs < REALTIME_TTL_MS) {
-            online = true;
-            fonte_nome = 'Supabase · proxy local ativo';
-            byQueue = rows
-              .filter(q => q.queue_id && q.queue_id !== '_zero')
-              .map(q => ({
-                queue: q.queue_name || q.queue_id,
-                in_ura: q.in_ura || 0,
-                waiting_human: q.waiting_human || 0,
-                in_human_service: q.in_human_service || 0,
-                free_agents: q.free_agents || 0,
-              }));
-            totals = {
-              in_ura: byQueue.reduce((s,q)=>s+q.in_ura,0),
-              waiting_human: byQueue.reduce((s,q)=>s+q.waiting_human,0),
-              in_human_service: byQueue.reduce((s,q)=>s+q.in_human_service,0),
-              free_agents: byQueue.reduce((s,q)=>s+q.free_agents,0),
-            };
+      const r0 = await fetch('http://localhost:3355/pbx/realtime-dashboard', { signal: AbortSignal.timeout(2000) });
+      if (r0.ok) {
+        const d0 = await r0.json();
+        proxyAtivo = true;
+        online = true;
+        totals = d0.totals || { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
+        byQueue = (d0.by_queue || []).filter(q => q.queue !== '_zero');
+      }
+    } catch(e) { /* proxy local não está rodando */ }
+
+    // 2. Tenta Supabase (alimentado pelo proxy local via upsertQueues)
+    if (!proxyAtivo) {
+      try {
+        const r = await fetch(
+          SUPA_URL + '/rest/v1/realtime_queues?select=*&order=waiting_human.desc',
+          { headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + SUPA_ANON }, signal: AbortSignal.timeout(5000) }
+        );
+        if (r.ok) {
+          const rows = await r.json();
+          if (Array.isArray(rows) && rows.length > 0) {
+            const maxTs = Math.max(...rows.map(q => new Date(q.updated_at).getTime()));
+            const ageMs = Date.now() - maxTs;
+            if (ageMs < REALTIME_TTL_MS) {
+              online = true;
+              byQueue = rows
+                .filter(q => q.queue_id && q.queue_id !== '_zero')
+                .map(q => ({
+                  queue: q.queue_name || q.queue_id,
+                  in_ura: q.in_ura || 0,
+                  waiting_human: q.waiting_human || 0,
+                  in_human_service: q.in_human_service || 0,
+                  free_agents: q.free_agents || 0,
+                }));
+              totals = {
+                in_ura: byQueue.reduce((s,q)=>s+q.in_ura,0),
+                waiting_human: byQueue.reduce((s,q)=>s+q.waiting_human,0),
+                in_human_service: byQueue.reduce((s,q)=>s+q.in_human_service,0),
+                free_agents: byQueue.reduce((s,q)=>s+q.free_agents,0),
+              };
+            }
           }
         }
-      }
-    } catch(e) { /* Supabase falhou, tenta Railway */ }
+      } catch(e) { /* Supabase falhou */ }
+    }
 
-    // ── Fallback: Railway (funciona quando proxy local não está rodando) ──
+    // 3. Fallback: Railway
     if (!totals) {
       try {
         const r2 = await fetch(`${PROXY}/pbx/realtime-dashboard`, { signal: AbortSignal.timeout(6000) });
@@ -561,7 +575,6 @@ async function fetchRealtimeDashboard() {
           const d = await r2.json();
           if (d.meta && d.meta.online) {
             online = true;
-            fonte_nome = 'Railway · WebSocket';
             totals = d.totals || { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
             byQueue = (d.by_queue || []).filter(q => q.queue !== '_zero');
           }
@@ -569,12 +582,11 @@ async function fetchRealtimeDashboard() {
       } catch(e) { /* Railway também falhou */ }
     }
 
-    // ── Sem dados de nenhuma fonte ──
+    // 4. Sem dados — zeros
     if (!totals) {
       totals = { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
       byQueue = [];
       online = false;
-      fonte_nome = 'sem dados';
     }
 
     // ── Atualiza UI ──
