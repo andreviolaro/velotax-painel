@@ -847,6 +847,8 @@ function iniciarSocketEspera() {
         if (data.startsWith('42')) {
           try {
             var arr = JSON.parse(data.slice(2));
+            // Log ALL 42 events to see what's arriving
+            console.log('[REALTIME] evento: ' + arr[0] + ' | keys: ' + (arr[1] ? Object.keys(arr[1]).join(',') : 'vazio'));
             if (Array.isArray(arr) && arr[0] === 'pbx.report.realtime.event') {
               var payload = arr[1] || {};
               var queues  = payload.queues || [];
