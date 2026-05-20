@@ -1067,15 +1067,6 @@ function aderRenderCards() {
 }
 
 async function loadAderencia() {
-  // Aderência usa Excel local — só funciona com proxy local
-  var isLocal = location.hostname==='localhost'||location.hostname==='127.0.0.1'||location.protocol==='file:';
-  if (!isLocal) {
-    var dot = document.getElementById('ader-dot');
-    var txt = document.getElementById('ader-txt');
-    if (dot) dot.className = 'api-dot err';
-    if (txt) txt.textContent = 'Aderência · disponível apenas no painel local';
-    return;
-  }
   if (_aderLoading) return;
   _aderLoading = true;
   var dot = document.getElementById('ader-dot');
