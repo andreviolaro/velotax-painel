@@ -344,6 +344,10 @@
       </table>
     </div>
     <div class="fila-rt-fonte" id="fila-rt-fonte">WebSocket 55PBX · atualizado a cada 3s</div>
+    <div id="bat-offline-banner" style="display:none;margin-top:10px;padding:10px 14px;background:#FFF8E1;border:1.5px solid #FCC200;border-radius:8px;font-size:12px;color:#7A5800;display:flex;align-items:center;gap:8px;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FCC200" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      <span><strong>Proxy local offline</strong> — abra o <strong>iniciar-proxy.bat</strong> no computador do escritório para ativar os dados em tempo real de fila.</span>
+    </div>
   </div>
 
   <!-- ═══ BLOCO TICKETS ═══ -->
@@ -576,6 +580,9 @@ async function fetchRealtimeDashboard() {
     // ── Atualiza UI ──
     if (dot) dot.className = 'fila-rt-dot ' + (online ? 'live' : 'stale');
     if (txt) txt.textContent = (online ? 'Ao vivo · ' : 'Sem movimento · ') + agora;
+    // Banner .bat offline
+    var batBanner = document.getElementById('bat-offline-banner');
+    if (batBanner) batBanner.style.display = online ? 'none' : 'flex';
 
     const wEl = document.getElementById('fila-rt-waiting');
     const sEl = document.getElementById('fila-rt-service');
