@@ -452,6 +452,11 @@ const PROXY = (location.hostname === 'localhost' || location.hostname === '127.0
   ? 'http://localhost:3355'
   : 'https://velotax-painel-production.up.railway.app';
 
+// Supabase — leitura direta da tabela realtime_queues
+const SUPA_URL  = 'https://jxqpisrkjicapvtbyvzp.supabase.co';
+const SUPA_ANON = 'sb_publishable_s8dhxF04kGv-_pgPmVdl6w_gMZV0xxa';
+const REALTIME_TTL_MS = 60000; // dados com mais de 60s = zerados
+
 // ── helpers ──────────────────────────────────────────────────
 
 function stars(v) {
@@ -477,6 +482,7 @@ function barRow(label, value, pctStr, color) {
 // ── 55PBX fetch ───────────────────────────────────────────────
 
 // ── Realtime Dashboard (Em Fila) ─────────────────────────────
+// Lê do Supabase (alimentado pelo proxy local) OU do Railway (fallback)
 
 const FILA_CORES_RT = [
   { match: 'ativo',        cor: '#1634FF' },
@@ -503,50 +509,97 @@ async function fetchRealtimeDashboard() {
   const dot   = document.getElementById('fila-rt-dot');
   const txt   = document.getElementById('fila-rt-txt');
   const fonte = document.getElementById('fila-rt-fonte');
+  const agora = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+
   try {
-    const res = await fetch(`${PROXY}/pbx/realtime-dashboard`, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const d = await res.json();
+    // ── Tenta Supabase primeiro (proxy local alimenta via WebSocket) ──
+    let totals = null, byQueue = [], online = false, fonte_nome = '';
 
-    const online   = d.meta && d.meta.online;
-    const totals   = d.totals   || { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
-    const byQueue  = d.by_queue || [];
-    const agora    = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    try {
+      const r = await fetch(
+        SUPA_URL + '/rest/v1/realtime_queues?select=*&order=waiting_human.desc',
+        { headers: { 'apikey': SUPA_ANON, 'Authorization': 'Bearer ' + SUPA_ANON }, signal: AbortSignal.timeout(5000) }
+      );
+      if (r.ok) {
+        const rows = await r.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          // Verifica TTL — pega o updated_at mais recente
+          const maxTs = Math.max(...rows.map(q => new Date(q.updated_at).getTime()));
+          const ageMs = Date.now() - maxTs;
+          if (ageMs < REALTIME_TTL_MS) {
+            online = true;
+            fonte_nome = 'Supabase · proxy local ativo';
+            byQueue = rows
+              .filter(q => q.queue_id && q.queue_id !== '_zero')
+              .map(q => ({
+                queue: q.queue_name || q.queue_id,
+                in_ura: q.in_ura || 0,
+                waiting_human: q.waiting_human || 0,
+                in_human_service: q.in_human_service || 0,
+                free_agents: q.free_agents || 0,
+              }));
+            totals = {
+              in_ura: byQueue.reduce((s,q)=>s+q.in_ura,0),
+              waiting_human: byQueue.reduce((s,q)=>s+q.waiting_human,0),
+              in_human_service: byQueue.reduce((s,q)=>s+q.in_human_service,0),
+              free_agents: byQueue.reduce((s,q)=>s+q.free_agents,0),
+            };
+          }
+        }
+      }
+    } catch(e) { /* Supabase falhou, tenta Railway */ }
 
-    // Status dot
-    if (online) {
-      dot.className = 'fila-rt-dot live';
-      txt.textContent = 'Ao vivo · ' + agora;
-    } else {
-      dot.className = 'fila-rt-dot stale';
-      txt.textContent = 'Sem movimento · ' + agora;
+    // ── Fallback: Railway (funciona quando proxy local não está rodando) ──
+    if (!totals) {
+      try {
+        const r2 = await fetch(`${PROXY}/pbx/realtime-dashboard`, { signal: AbortSignal.timeout(6000) });
+        if (r2.ok) {
+          const d = await r2.json();
+          if (d.meta && d.meta.online) {
+            online = true;
+            fonte_nome = 'Railway · WebSocket';
+            totals = d.totals || { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
+            byQueue = (d.by_queue || []).filter(q => q.queue !== '_zero');
+          }
+        }
+      } catch(e) { /* Railway também falhou */ }
     }
 
-    // KPIs totais — sempre mostra 0 quando sem dados (nunca congela)
-    const waiting = totals.waiting_human || 0;
-    const service = totals.in_human_service || 0;
-    const ura     = totals.in_ura || 0;
-    const free    = totals.free_agents || 0;
+    // ── Sem dados de nenhuma fonte ──
+    if (!totals) {
+      totals = { in_ura:0, waiting_human:0, in_human_service:0, free_agents:0 };
+      byQueue = [];
+      online = false;
+      fonte_nome = 'sem dados';
+    }
+
+    // ── Atualiza UI ──
+    if (dot) dot.className = 'fila-rt-dot ' + (online ? 'live' : 'stale');
+    if (txt) txt.textContent = (online ? 'Ao vivo · ' : 'Sem movimento · ') + agora;
 
     const wEl = document.getElementById('fila-rt-waiting');
     const sEl = document.getElementById('fila-rt-service');
     const uEl = document.getElementById('fila-rt-ura');
     const fEl = document.getElementById('fila-rt-free');
+    const w = totals.waiting_human || 0;
+    const s = totals.in_human_service || 0;
+    const u = totals.in_ura || 0;
+    const f = totals.free_agents || 0;
 
-    if (wEl) { wEl.textContent = waiting; wEl.className = 'fila-rt-kpi-val' + (waiting > 0 ? ' alert' : ' ok'); }
-    if (sEl) { sEl.textContent = service; sEl.className = 'fila-rt-kpi-val'; }
-    if (uEl) { uEl.textContent = ura;     uEl.className = 'fila-rt-kpi-val'; }
-    if (fEl) { fEl.textContent = free;    fEl.className = 'fila-rt-kpi-val' + (free > 0 ? ' ok' : ''); }
+    if (wEl) { wEl.textContent = w; wEl.className = 'fila-rt-kpi-val' + (w > 0 ? ' alert' : ' ok'); }
+    if (sEl) { sEl.textContent = s; }
+    if (uEl) { uEl.textContent = u; }
+    if (fEl) { fEl.textContent = f; fEl.className = 'fila-rt-kpi-val' + (f > 0 ? ' ok' : ''); }
 
-    // Atualiza card "Em Espera" no bloco Telefonia também
+    // Atualiza card "Em Espera" no bloco Telefonia
     const telEsperaVal = document.getElementById('tel-espera-val');
     const telEsperaSub = document.getElementById('tel-espera-sub');
     const mcEspera     = document.getElementById('mc-espera');
-    if (telEsperaVal) telEsperaVal.textContent = waiting;
+    if (telEsperaVal) telEsperaVal.textContent = w;
     if (mcEspera) {
-      if (waiting >= 1) {
+      if (w >= 1) {
         mcEspera.classList.add('em-espera-ativo');
-        if (telEsperaSub) telEsperaSub.textContent = waiting === 1 ? '1 cliente aguardando' : waiting + ' clientes aguardando';
+        if (telEsperaSub) telEsperaSub.textContent = w === 1 ? '1 cliente aguardando' : w + ' clientes aguardando';
       } else {
         mcEspera.classList.remove('em-espera-ativo');
         if (telEsperaSub) telEsperaSub.textContent = 'nenhum em espera';
@@ -556,41 +609,38 @@ async function fetchRealtimeDashboard() {
     // Tabela por fila
     const tbody = document.getElementById('fila-rt-tbody');
     if (tbody) {
-      // Filtra filas inválidas (ativo puro, sem nome, _zero)
-      const filasValidas = byQueue.filter(q => q.queue && q.queue !== '_zero' && !q.queue.match(/^\d{4}-/));
+      const filasValidas = byQueue.filter(q => q.queue && !q.queue.match(/^\d{4}-/));
       if (!online || filasValidas.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="fila-rt-vazio">${online ? 'Nenhuma chamada em fila no momento' : 'Sem chamadas ativas · filas em repouso'}</td></tr>`;
       } else {
-        // Ordena por waiting_human desc
-        filasValidas.sort((a, b) => (b.waiting_human || 0) - (a.waiting_human || 0));
+        filasValidas.sort((a,b) => (b.waiting_human||0) - (a.waiting_human||0));
         tbody.innerHTML = filasValidas.map(q => {
           const cor = corFilaRT(q.queue);
-          const w   = q.waiting_human    || 0;
-          const s   = q.in_human_service || 0;
-          const f   = q.free_agents      || 0;
+          const wq = q.waiting_human || 0;
+          const sq = q.in_human_service || 0;
+          const fq = q.free_agents || 0;
           return `<tr>
             <td><span style="display:inline-flex;align-items:center;gap:7px;">
               <span style="width:9px;height:9px;border-radius:50%;background:${cor};flex-shrink:0;display:inline-block;"></span>
               ${q.queue}
             </span></td>
-            <td class="r" style="color:${w>0?'#e03030':'var(--vn)'}">${w}</td>
-            <td class="r">${s}</td>
-            <td class="r" style="color:${f>0?'#15A237':'var(--vm)'}">${f}</td>
+            <td class="r" style="color:${wq>0?'#e03030':'var(--vn)'}">${wq}</td>
+            <td class="r">${sq}</td>
+            <td class="r" style="color:${fq>0?'#15A237':'var(--vm)'}">${fq}</td>
           </tr>`;
         }).join('');
       }
     }
 
     if (fonte) fonte.textContent = 'WebSocket 55PBX · ' + agora;
-    window._realtimeDash = d;
+    window._realtimeDash = { online, totals, byQueue };
 
   } catch(e) {
     if (dot) dot.className = 'fila-rt-dot stale';
-    if (txt) txt.textContent = 'Proxy offline · verifique o .bat';
+    if (txt) txt.textContent = 'Erro · ' + agora;
     console.warn('[REALTIME]', e.message);
   }
 }
-
 async function fetchEspera() {
   // Mantido por compatibilidade — agora delegamos ao realtime dashboard
   await fetchRealtimeDashboard();
