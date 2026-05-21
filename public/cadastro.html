@@ -602,7 +602,7 @@ async function salvar() {
   }
 
   const folgaDia  = tipo === 'job_rot' ? (parseInt(document.getElementById('f-folga-dia').value) || 0) : 0;
-  const folgaData = tipo === 'job_rot' && folgaDia > 0 ? (document.getElementById('f-folga-data').value || '') : '';
+  const folgaData = tipo === 'job_rot' && folgaDia > 0 ? (document.getElementById('f-folga-data').value || null) : null;
 
   const btn = document.getElementById('btn-save');
   btn.disabled = true;
@@ -612,8 +612,8 @@ async function salvar() {
     nome, ramal, empresa, entrada, saida,
     tipo_escala: tipo,
     folga_dia: folgaDia,
-    folga_data: folgaData,
-    extra_dias: extra_dias,
+    folga_data: folgaData || null,
+    extra_dias: extra_dias || null,
     ativo: true,
     updated_at: new Date().toISOString()
   };
