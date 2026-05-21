@@ -195,6 +195,7 @@ async function handleEscala(req, res) {
         'velo':        [1,2,3,4,5],
         'job_segsex':  [1,2,3,4,5],
         'job_sabaqua': [0,1,2,3,6],
+        'job_sabqua':  [0,1,2,3,6],  // alias correto (Supabase)
         'job_rot':     [1,2,3,4,5,6],
       };
 
@@ -718,7 +719,10 @@ var _realtimeState = {
   totals: { in_ura: 0, waiting_human: 0, in_human_service: 0, free_agents: 0 },
   by_queue: [],
 };
-var RT_HOST   = 'realtimeapi02.55pbx.com';
+// Servidores realtime da 55PBX (rotaciona entre 01 e 02)
+var RT_HOSTS  = ['realtimeapi01.55pbx.com', 'realtimeapi02.55pbx.com'];
+var RT_HOST_IDX = 0;
+var RT_HOST   = RT_HOSTS[RT_HOST_IDX];
 var RT_PORT   = 60019;
 var RT_ORIGIN = 'https://realtime.55pbx.com:8600';
 
@@ -831,54 +835,98 @@ function iniciarSocketEspera() {
           return;
         }
 
-        // Passo 2: servidor confirmou namespace → enviamos o filter
-        // NÃO enviamos pings — no EIO=4 só o servidor pinga, cliente apenas responde
+        // Passo 2: servidor confirmou namespace → captura o SID do WS e envia o filter
         if (data === '40' || data.startsWith('40{')) {
           console.log('[ESPERA] namespace conectado');
+          // Extrai o SID do WebSocket do payload 40{...}
+          var wsSid = sid; // fallback
+          if (data.startsWith('40{')) {
+            try {
+              var nsData = JSON.parse(data.slice(2));
+              if (nsData.sid) wsSid = nsData.sid;
+            } catch(e) {}
+          }
+          // Envia filter imediatamente com ws_sid
           setTimeout(function() {
             var filterEvt = '42["change.realtime.filter",{"client_id":"' + CLIENT_ID +
               '","queue_id":"all_queue","user_id":"' + USER_ID +
-              '","id_socket":"' + sid + '"}]';
+              '","id_socket":"' + wsSid + '"}]';
             wsSend(filterEvt);
-            console.log('[ESPERA] autenticado, aguardando eventos...');
-          }, 100);
+            setTimeout(function() { wsSend(filterEvt); }, 300);
+            console.log('[ESPERA] autenticado, filter enviado com ws_sid');
+          }, 150);
           return;
         }
         if (data.startsWith('42')) {
           try {
             var arr = JSON.parse(data.slice(2));
-            // Log ALL 42 events to see what's arriving
-            console.log('[REALTIME] evento: ' + arr[0] + ' | keys: ' + (arr[1] ? Object.keys(arr[1]).join(',') : 'vazio'));
+            // Captura o connectionId que o servidor envia e usa no filter
+            if (Array.isArray(arr) && arr[0] === 'receiveConnectionId') {
+              var connId = arr[1] && arr[1].id ? arr[1].id : null;
+              if (connId) {
+                console.log('[ESPERA] connectionId recebido: ' + connId);
+                var filterEvt = '42["change.realtime.filter",{"client_id":"' + CLIENT_ID +
+                  '","queue_id":"all_queue","user_id":"' + USER_ID +
+                  '","id_socket":"' + connId + '"}]';
+                wsSend(filterEvt);
+                setTimeout(function() { wsSend(filterEvt); }, 300);
+                console.log('[ESPERA] filter enviado com connectionId correto');
+              }
+              return;
+            }
+
             if (Array.isArray(arr) && arr[0] === 'pbx.report.realtime.event') {
               var payload = arr[1] || {};
+              // LOG COMPLETO para debug
+              console.log('[DEBUG] payload keys: ' + Object.keys(payload).join(', '));
+              console.log('[DEBUG] quantity_waiting=' + payload.quantity_waiting +
+                ' quantity_ura=' + payload.quantity_ura +
+                ' quantity_in_service=' + payload.quantity_in_service +
+                ' quantity_available=' + payload.quantity_available +
+                ' quantity_logged=' + payload.quantity_logged);
+              if (payload.queues) console.log('[DEBUG] queues count=' + payload.queues.length + ' first_keys=' + (payload.queues[0] ? Object.keys(payload.queues[0]).join(',') : 'empty'));
+              if (payload.agents) console.log('[DEBUG] agents count=' + (Array.isArray(payload.agents) ? payload.agents.length : typeof payload.agents));
+              
               var queues  = payload.queues || [];
               var totWaiting = 0, totInUra = 0, totService = 0, totFree = 0;
               var byQueue = [];
 
+              // Usa campos diretos do payload se disponíveis
+              if (payload.quantity_waiting !== undefined) totWaiting = parseInt(payload.quantity_waiting) || 0;
+              if (payload.quantity_ura !== undefined)     totInUra   = parseInt(payload.quantity_ura)     || 0;
+              if (payload.quantity_in_service !== undefined) totService = parseInt(payload.quantity_in_service) || 0;
+              if (payload.quantity_available !== undefined)  totFree    = parseInt(payload.quantity_available)  || 0;
+
+              // Agentes livres: nível raiz do payload
+              var allAgents = Array.isArray(payload.agents) ? payload.agents : [];
+              totFree = allAgents.filter(function(a) {
+                return a && a.login_state === true && a.pause_state === false && a.in_call === false;
+              }).length;
+
               queues.forEach(function(q) {
                 if (!q) return;
-                var calls   = q.calls || {};
-                var waiting = Array.isArray(calls.waiting)   ? calls.waiting.length   : 0;
-                var service = Array.isArray(calls.attendance) ? calls.attendance.length : 0;
-                var agents  = Array.isArray(q.agents) ? q.agents : [];
-                var free    = agents.filter(function(a) {
-                  return a && !a.active_pause_state && (a.active_sum_calls_attendance || 0) === 0;
-                }).length;
+                var resume    = (q.resume && q.resume.receptive) ? q.resume.receptive : {};
+                var calls     = q.calls || {};
+
+                // Usa resume.receptive primeiro (mais preciso), fallback para calls array
+                var waiting = resume.quantity_waiting    !== undefined ? parseInt(resume.quantity_waiting)    :
+                              (Array.isArray(calls.waiting)   ? calls.waiting.length   : 0);
+                var service = resume.quantity_attendance  !== undefined ? parseInt(resume.quantity_attendance) :
+                              (Array.isArray(calls.attendance) ? calls.attendance.length : 0);
 
                 totWaiting += waiting;
                 totService += service;
-                totFree    += free;
 
-                var qName = q.name || q.queue_id || (q._id ? String(q._id).slice(-6) : 'fila');
+                var qName = q.queue_name || q.name || q.queue_id || (q._id ? String(q._id).slice(-6) : 'fila');
                 byQueue.push({
                   queue: qName, in_ura: 0,
-                  waiting_human: waiting, in_human_service: service, free_agents: free,
+                  waiting_human: waiting, in_human_service: service, free_agents: 0,
                 });
               });
 
               totInUra = parseInt(payload.quantity_ura || 0);
 
-              console.log('[ESPERA] waiting=' + totWaiting + ' ura=' + totInUra + ' service=' + totService + ' queues=' + byQueue.length);
+              console.log('[ESPERA] waiting=' + totWaiting + ' ura=' + totInUra + ' service=' + totService + ' free=' + totFree + ' queues=' + byQueue.length);
 
               _esperaCache = totWaiting;
               _esperaTs    = Date.now();
@@ -925,7 +973,10 @@ function iniciarSocketEspera() {
 
       function reconectar(motivo) {
         if (pingTimer) clearInterval(pingTimer);
-        console.log('[ESPERA] reconectando (' + motivo + ')...');
+        // Rotaciona entre os servidores a cada reconexão
+        RT_HOST_IDX = (RT_HOST_IDX + 1) % RT_HOSTS.length;
+        RT_HOST = RT_HOSTS[RT_HOST_IDX];
+        console.log('[ESPERA] reconectando (' + motivo + ') → ' + RT_HOST);
         _esperaAtivo = false;
         setTimeout(iniciarSocketEspera, 3000);
       }
@@ -949,22 +1000,16 @@ async function handlePbxEspera(req, res) {
   res.end(JSON.stringify({ emEspera: _esperaCache, fonte: _esperaTs > 0 ? 'realtime_ws' : 'aguardando', idadeMs: Date.now() - _esperaTs }));
 }
 
+
 async function handleRealtimeDashboard(req, res) {
   iniciarSocketEspera();
   var ageMs  = _realtimeState.ts > 0 ? Date.now() - _realtimeState.ts : null;
   var online = _realtimeState.ts > 0 && ageMs < 35000;
-  // Se dados estiverem velhos (>35s), retorna zeros explícitos
   var totals   = online ? _realtimeState.totals   : { in_ura: 0, waiting_human: 0, in_human_service: 0, free_agents: 0 };
   var by_queue = online ? _realtimeState.by_queue : [];
   res.writeHead(200, Object.assign({ 'Content-Type': 'application/json' }, CORS));
   res.end(JSON.stringify({
-    meta: {
-      fonte:    'websocket_55pbx',
-      online:   online,
-      age_ms:   ageMs,
-      ts:       _realtimeState.ts,
-      conectado: _esperaAtivo,
-    },
+    meta: { fonte: 'websocket_55pbx', online: online, age_ms: ageMs, ts: _realtimeState.ts, conectado: _esperaAtivo },
     totals:   totals,
     by_queue: by_queue,
   }));
