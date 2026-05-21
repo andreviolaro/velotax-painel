@@ -454,10 +454,21 @@
 </div>
 
 <script>
-// Detecta automaticamente: local usa proxy local, Vercel usa Railway
-const PROXY = (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:')
-  ? 'http://localhost:3355'
-  : 'https://velotax-painel-production.up.railway.app';
+// Detecta proxy: tenta local primeiro, cai para Railway se não responder
+const PROXY_LOCAL   = 'http://localhost:3355';
+const PROXY_RAILWAY = 'https://velotax-painel-production.up.railway.app';
+let   PROXY = PROXY_RAILWAY; // default
+
+// Testa se .bat local está rodando (apenas quando acessado pelo Vercel)
+(async function detectProxy() {
+  if (location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:') {
+    PROXY = PROXY_LOCAL; return;
+  }
+  try {
+    const r = await fetch(PROXY_LOCAL + '/health', { signal: AbortSignal.timeout(1500) });
+    if (r.ok) { PROXY = PROXY_LOCAL; console.log('[PROXY] usando localhost:3355'); }
+  } catch(e) { /* Railway */ }
+})();
 
 // Supabase — leitura direta da tabela realtime_queues
 const SUPA_URL  = 'https://jxqpisrkjicapvtbyvzp.supabase.co';
