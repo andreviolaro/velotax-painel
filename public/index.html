@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
   <title>Velotax — Painel de Operações</title>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet"/>
@@ -1088,12 +1091,16 @@ var _aderAgents = [];
 var _aderLoading = false;
 var ADER_TOLERANCE = 5;
 var ADER_WORK_DAYS = {
-  velo:[1,2,3,4,5],
-  job:[0,1,2,3,4,5,6],
-  job_segsex:[1,2,3,4,5],
+  velo:       [1,2,3,4,5],
+  job:        [0,1,2,3,4,5,6],
+  job_segsex: [1,2,3,4,5],
   job_sabaqua:[0,1,2,3,6],
-  job_rot:[1,2,3,4,5,6]
+  job_sabqua: [0,1,2,3,6],  // alias sem "a" (Supabase)
+  job_rot:    [1,2,3,4,5,6]
 };
+
+// Tolerância para "Ausente": só marca ausente após 60min do horário de entrada
+var ADER_ABSENT_MIN = 60;
 
 function aderToMin(hhmm) {
   if (!hhmm) return 0;
@@ -1102,14 +1109,25 @@ function aderToMin(hhmm) {
 }
 
 function aderCalcStatus(agent, firstLogin) {
-  // Usa trabalhaHoje do proxy (ja considera grupo, dia da semana e tipo Folga)
-  if (!agent.trabalhaHoje) return {st:'off', loginTime:null, delay:null, note: agent.tipo || 'Folga'};
+  // Verifica folga pelo campo trabalhaHoje do proxy/Supabase
+  if (!agent.trabalhaHoje) return {st:'off', loginTime:null, delay:null, note:'Folga'};
+
+  // Também verifica pelo tipo de escala e dia da semana (fallback)
+  var dow = new Date().getDay();
+  var diasTipo = ADER_WORK_DAYS[agent.tipo_escala] || ADER_WORK_DAYS[agent.tipo] || null;
+  if (diasTipo && diasTipo.indexOf(dow) === -1) {
+    return {st:'off', loginTime:null, delay:null, note:'Folga'};
+  }
 
   var nowMin   = new Date().getHours()*60+new Date().getMinutes();
   var schedMin = aderToMin(agent.entrada);
 
   if (!firstLogin) {
+    // Antes do horário → aguardando
     if (nowMin < schedMin) return {st:'off', loginTime:null, delay:null, note:'Aguardando horário'};
+    // Até 60min após entrada → ainda não é ausente definitivo
+    if (nowMin < schedMin + ADER_ABSENT_MIN) return {st:'off', loginTime:null, delay:null, note:'Aguardando'};
+    // Mais de 60min sem login → ausente
     return {st:'absent', loginTime:null, delay:null};
   }
 
